@@ -225,6 +225,11 @@ func (m *Manager) updateInternal(ctx context.Context, base, auth *Auth, mode upd
 		if len(auth.ModelStates) == 0 && len(existing.ModelStates) > 0 {
 			auth.ModelStates = existing.ModelStates
 		}
+		if sameQuotaAccount(existing, auth) {
+			// File, watcher, and token-refresh updates carry no live quota observation; keep the
+			// last one so quota-aware routing does not forget the account's window on every rewrite.
+			auth.Quota = mergeQuotaObservation(auth.Quota, existing.Quota)
+		}
 		credChanged := CredentialsChanged(existing, auth)
 		if credChanged {
 			if hasUnauthorizedAuthFailure(existing) || (auth.LastError != nil && isUnauthorizedError(auth.LastError)) {

@@ -225,3 +225,18 @@ func mergeQuotaObservation(target, source QuotaState) QuotaState {
 	target.Signals = source.Clone().Signals
 	return target
 }
+
+// sameQuotaAccount reports whether an update still describes the upstream account whose
+// quota was observed. Quota windows belong to the account, so an OAuth token rotation keeps
+// the snapshot while a different login or API key under the same auth ID discards it.
+func sameQuotaAccount(existing, incoming *Auth) bool {
+	if existing == nil || incoming == nil {
+		return false
+	}
+	for _, key := range []string{"email", "account_id", "account_uuid", "organization_uuid", "api_key"} {
+		if authMetadataString(existing, key) != authMetadataString(incoming, key) {
+			return false
+		}
+	}
+	return authAttribute(existing, AttributeAPIKey) == authAttribute(incoming, AttributeAPIKey)
+}

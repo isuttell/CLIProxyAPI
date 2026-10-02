@@ -21,6 +21,18 @@ func TestWeightedRoundRobinRoutingSelector(t *testing.T) {
 	}
 }
 
+func TestExpiringFirstRoutingSelector(t *testing.T) {
+	state := normalizedRoutingRuntimeState(&internalconfig.Config{
+		Routing: internalconfig.RoutingConfig{Strategy: "expiring-first"},
+	})
+	if state.strategy != "expiring-first" {
+		t.Fatalf("strategy = %q, want expiring-first", state.strategy)
+	}
+	if _, ok := newRoutingSelector(state).(*coreauth.ExpiringFirstSelector); !ok {
+		t.Fatalf("selector type = %T, want *auth.ExpiringFirstSelector", newRoutingSelector(state))
+	}
+}
+
 func TestServiceRejectsInvalidCredentialWeightConfigCommit(t *testing.T) {
 	originalCfg := &internalconfig.Config{}
 	service := &Service{cfg: originalCfg}

@@ -126,7 +126,11 @@ access:
 
 # Routing strategy for selecting credentials when multiple match.
 routing:
-  strategy: "round-robin" # round-robin (default), weighted-round-robin, fill-first
+  strategy: "round-robin" # round-robin (default), weighted-round-robin, fill-first, expiring-first
+  # expiring-first drains the Claude/Codex subscription whose quota window resets soonest,
+  # using the rate-limit headers observed on each credential's latest response. Credentials
+  # with no live window rank after those with one, exhausted windows rank last, and providers
+  # without quota headers fall back to fill-first ordering.
   # weighted-round-robin uses each credential's integer weight (default 1, maximum 1,000,000).
   # Non-positive weights exclude the credential while this strategy is active.
   # For OAuth/file credentials, add a top-level numeric "weight" field to the auth JSON.
