@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -17,6 +18,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 
+	internalconfig "github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/credentialweight"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/thinking"
@@ -914,6 +916,7 @@ type SessionAffinitySelector struct {
 	cache            *SessionCache
 	matcher          *cliproxysession.MerklePrefixMatcher
 	subagentAffinity bool
+	coldMu           sync.Mutex
 }
 
 // SessionAffinityConfig configures the session affinity selector.
@@ -927,7 +930,7 @@ type SessionAffinityConfig struct {
 func NewSessionAffinitySelector(fallback Selector) *SessionAffinitySelector {
 	return NewSessionAffinitySelectorWithConfig(SessionAffinityConfig{
 		Fallback: fallback,
-		TTL:      time.Hour,
+		TTL:      internalconfig.DefaultSessionAffinityTTL,
 	})
 }
 
@@ -937,7 +940,7 @@ func NewSessionAffinitySelectorWithConfig(cfg SessionAffinityConfig) *SessionAff
 		cfg.Fallback = &RoundRobinSelector{}
 	}
 	if cfg.TTL <= 0 {
-		cfg.TTL = time.Hour
+		cfg.TTL = internalconfig.DefaultSessionAffinityTTL
 	}
 	subagentAffinity := true
 	if cfg.SubagentAffinity != nil {
@@ -1056,32 +1059,39 @@ func (s *SessionAffinitySelector) Pick(ctx context.Context, provider, model stri
 		}
 	}
 
-	if cachedAuthID, ok := s.cache.GetAndRefresh(cacheKey); ok {
+	// A direct hot hit has no alias to attach. Keep it outside the cold-selection lock.
+	if fallbackKey == "" || isSubagent || isFork {
+		if cachedAuthID, ok := s.cache.GetAndRefresh(cacheKey); ok {
+			for _, auth := range available {
+				if auth.ID == cachedAuthID && s.pinUsable(auth, model, now) {
+					entry.Infof("session-affinity: cache hit | session=%s auth=%s provider=%s model=%s", truncateSessionID(primaryID), auth.ID, provider, model)
+					return auth, nil
+				}
+			}
+		}
+	}
+
+	s.coldMu.Lock()
+	defer s.coldMu.Unlock()
+
+	// Recheck after acquiring the lock: another request may have bound this session.
+	cachedAuthID, hasPrimary := s.cache.GetAndRefresh(cacheKey)
+	if hasPrimary {
 		for _, auth := range available {
-			if auth.ID == cachedAuthID {
+			if auth.ID == cachedAuthID && s.pinUsable(auth, model, now) {
 				bind(auth.ID)
 				entry.Infof("session-affinity: cache hit | session=%s auth=%s provider=%s model=%s", truncateSessionID(primaryID), auth.ID, provider, model)
 				return auth, nil
 			}
 		}
-		// Cached auth not available, reselect via fallback selector for even distribution
-		auth, err := s.fallback.Pick(ctx, provider, model, opts, fallbackAuths)
-		if err != nil {
-			return nil, err
-		}
-		if auth == nil {
-			return nil, nil
-		}
-		bind(auth.ID)
-		entry.Infof("session-affinity: cache hit but auth unavailable, reselected | session=%s auth=%s provider=%s model=%s", truncateSessionID(primaryID), auth.ID, provider, model)
-		return auth, nil
 	}
 
-	if fallbackKey != "" {
+	if !hasPrimary && fallbackKey != "" {
 		if cachedAuthID, ok := s.cache.Get(fallbackKey); ok {
 			for _, auth := range available {
-				if auth.ID == cachedAuthID {
-					if !isSubagent || s.subagentAffinity {
+				if auth.ID == cachedAuthID && s.pinUsable(auth, model, now) {
+					if (!isSubagent || s.subagentAffinity) &&
+						(!(isSubagent || isFork) || s.canInherit(auth, model, now)) {
 						bind(auth.ID)
 						if isFork {
 							entry.Infof("session-affinity: fork cache hit | session=%s parent=%s auth=%s provider=%s model=%s", truncateSessionID(primaryID), truncateSessionID(fallbackID), auth.ID, provider, model)
@@ -1095,15 +1105,18 @@ func (s *SessionAffinitySelector) Pick(ctx context.Context, provider, model stri
 		}
 	}
 
+	ctx = s.withAssignmentCounts(ctx)
 	auth, err := s.fallback.Pick(ctx, provider, model, opts, fallbackAuths)
 	if err != nil {
 		return nil, err
 	}
 	if auth == nil {
-		return nil, nil
+		return nil, &Error{Code: "auth_not_found", Message: "selector returned no auth"}
 	}
 	bind(auth.ID)
-	if isFork && fallbackID != "" {
+	if hasPrimary {
+		entry.Infof("session-affinity: cache hit but auth unavailable, reselected | session=%s auth=%s provider=%s model=%s", truncateSessionID(primaryID), auth.ID, provider, model)
+	} else if isFork && fallbackID != "" {
 		entry.Infof("session-affinity: fork bound to new auth | session=%s parent=%s auth=%s provider=%s model=%s", truncateSessionID(primaryID), truncateSessionID(fallbackID), auth.ID, provider, model)
 	} else {
 		entry.Infof("session-affinity: cache miss, new binding | session=%s auth=%s provider=%s model=%s", truncateSessionID(primaryID), auth.ID, provider, model)
@@ -1142,11 +1155,22 @@ func (s *SessionAffinitySelector) pickLCP(ctx context.Context, provider, model s
 	if errAvailable != nil {
 		return nil, true, errAvailable
 	}
+	s.coldMu.Lock()
+	defer s.coldMu.Unlock()
 
 	if match, ok := s.matcher.MatchFingerprintsWithContext(namespace, fingerprints, tailFingerprints, envDigest, minPrefixLength); ok {
 		for _, auth := range available {
-			if auth == nil || auth.ID != match.AuthID {
+			if auth == nil || auth.ID != match.AuthID || !s.pinUsable(auth, model, time.Now()) {
 				continue
+			}
+			if match.IsFork {
+				if !s.canInherit(auth, model, time.Now()) {
+					break
+				}
+				bound := s.matcher.BindFingerprintsWithContext(namespace, fingerprints, tailFingerprints, envDigest, minPrefixLength, auth.ID)
+				match.SessionID = bound.SessionID
+				match.ParentSessionID = bound.ParentSessionID
+				match.AccessNumber = bound.AccessNumber
 			}
 			if match.SessionID != "" {
 				opts.Metadata[cliproxyexecutor.LCPAffinitySessionIDMetadataKey] = match.SessionID
@@ -1187,6 +1211,7 @@ func (s *SessionAffinitySelector) pickLCP(ctx context.Context, provider, model s
 	}
 
 	fallbackAuths := highestPriorityAuths(available)
+	ctx = s.withAssignmentCounts(ctx)
 	auth, errPick := s.fallback.Pick(ctx, provider, model, opts, fallbackAuths)
 	if errPick != nil {
 		return nil, true, errPick
@@ -1319,12 +1344,10 @@ func selectorLogEntry(ctx context.Context) *log.Entry {
 	return log.NewEntry(log.StandardLogger())
 }
 
-// truncateSessionID shortens session ID for logging (first 8 chars + "...")
+// truncateSessionID keeps session identities distinct in logs without exposing their contents.
 func truncateSessionID(id string) string {
-	if len(id) <= 20 {
-		return id
-	}
-	return id[:8] + "..."
+	sum := sha256.Sum256([]byte(id))
+	return fmt.Sprintf("%x", sum[:6])
 }
 
 // Stop releases resources held by the selector.

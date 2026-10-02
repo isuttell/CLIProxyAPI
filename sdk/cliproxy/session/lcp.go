@@ -1084,6 +1084,36 @@ func (m *MerklePrefixMatcher) LookupSession(sessionID string) (authIDs []string,
 	return result, ns, len(result) > 0
 }
 
+// ActiveSessionCounts counts recently touched, distinct bound sessions by auth.
+// Multiple request sequences in one conversation share a session identity.
+func (m *MerklePrefixMatcher) ActiveSessionCounts(window time.Duration) map[string]int {
+	counts := make(map[string]int)
+	if m == nil || window <= 0 {
+		return counts
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now()
+	seen := make(map[string]map[string]struct{})
+	for _, ns := range m.groups {
+		for _, group := range ns.groups {
+			if group == nil || group.authID == "" || group.sessionID == "" || !now.Before(group.expiresAt) || now.Sub(group.expiresAt.Add(-m.ttl)) > window {
+				continue
+			}
+			if seen[group.authID] == nil {
+				seen[group.authID] = make(map[string]struct{})
+			}
+			key := group.namespace + "\x00" + group.sessionID
+			if _, exists := seen[group.authID][key]; exists {
+				continue
+			}
+			seen[group.authID][key] = struct{}{}
+			counts[group.authID]++
+		}
+	}
+	return counts
+}
+
 func (m *MerklePrefixMatcher) fingerprints(turns []CanonicalTurn) []string {
 	if len(turns) == 0 {
 		return nil
