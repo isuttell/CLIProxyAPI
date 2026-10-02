@@ -34,7 +34,7 @@ type routingRuntimeState struct {
 func normalizedRoutingRuntimeState(cfg *config.Config) routingRuntimeState {
 	state := routingRuntimeState{
 		strategy:                 "round-robin",
-		sessionAffinityTTL:       time.Hour,
+		sessionAffinityTTL:       8 * time.Hour,
 		sessionAffinitySubagents: true,
 	}
 	if cfg == nil {
@@ -42,6 +42,8 @@ func normalizedRoutingRuntimeState(cfg *config.Config) routingRuntimeState {
 	}
 
 	switch strings.ToLower(strings.TrimSpace(cfg.Routing.Strategy)) {
+	case "round-robin", "roundrobin", "rr":
+		state.strategy = "round-robin"
 	case "weighted-round-robin", "weightedroundrobin", "wrr":
 		state.strategy = "weighted-round-robin"
 	case "fill-first", "fillfirst", "ff":
@@ -115,6 +117,10 @@ func (s *Service) commitConfigUpdate(newCfg *config.Config) configCommit {
 	}
 	if errValidate := newCfg.ValidateCredentialWeights(); errValidate != nil {
 		log.WithError(errValidate).Warn("rejected config update with invalid credential weights")
+		return configCommit{}
+	}
+	if errValidate := newCfg.ValidateRouting(); errValidate != nil {
+		log.WithError(errValidate).Warn("rejected config update with invalid routing")
 		return configCommit{}
 	}
 

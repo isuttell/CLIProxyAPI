@@ -794,7 +794,7 @@ func TestHomeConfigWorkerPreemptsFailingConfigWithNewerPayload_Issue6225(t *test
 	client, _ := newHomePluginTaskTestClient(t, nil, 0)
 	baseCfg := &config.Config{}
 	baseCfg.Home.Enabled = true
-	baseCfg.Routing.Strategy = "initial"
+	baseCfg.Routing.Strategy = "round-robin"
 
 	service := &Service{
 		cfg:            baseCfg,
@@ -811,7 +811,7 @@ func TestHomeConfigWorkerPreemptsFailingConfigWithNewerPayload_Issue6225(t *test
 	// Enqueue an invalid payload that fails config parsing and triggers the retry loop
 	queue.enqueue([]byte("invalid: yaml: ["))
 	// Enqueue a valid recovered config payload that should preempt the failing one during retry
-	queue.enqueue([]byte("plugins:\n  enabled: true\nrouting:\n  strategy: recovered\n"))
+	queue.enqueue([]byte("plugins:\n  enabled: true\nrouting:\n  strategy: fill-first\n"))
 
 	ready := make(chan struct{})
 	close(ready)
@@ -840,7 +840,7 @@ func TestHomeConfigWorkerPreemptsFailingConfigWithNewerPayload_Issue6225(t *test
 		service.cfgMu.RLock()
 		strat := service.cfg.Routing.Strategy
 		service.cfgMu.RUnlock()
-		if strat == "recovered" {
+		if strat == "fill-first" {
 			return
 		}
 		pollTimer := time.NewTimer(5 * time.Millisecond)
@@ -855,5 +855,5 @@ func TestHomeConfigWorkerPreemptsFailingConfigWithNewerPayload_Issue6225(t *test
 	service.cfgMu.RLock()
 	currentStrat := service.cfg.Routing.Strategy
 	service.cfgMu.RUnlock()
-	t.Fatalf("worker never recovered to strategy 'recovered', current=%q", currentStrat)
+	t.Fatalf("worker never recovered to strategy 'fill-first', current=%q", currentStrat)
 }
