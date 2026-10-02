@@ -17,6 +17,14 @@ each recently active session to avoid assigning a burst of new agents to one
 account. These reservations are routing heuristics, not token balances or
 provider-enforced limits.
 
+The policy considers observations fresh for 30 minutes and reserves ten percentage
+points per session active in the last 30 minutes. Fresh subscriptions with at least
+15% headroom after reservations rank ahead of uncertain subscriptions, which rank
+ahead of fresh subscriptions below that floor. Child inheritance requires at least
+20% headroom after reserving for the prospective child. Weekly urgency adds up to
+0.5 to the allocation score within a tier. These constants live together in
+`sdk/cliproxy/auth/quota_standing.go`.
+
 Unknown, elapsed, malformed, and stale quota observations remain explicitly
 uncertain. They are not interpreted as an unused subscription. Quota is learned
 from ordinary upstream responses; the router does not generate polling requests
