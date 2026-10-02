@@ -85,14 +85,19 @@ func codexQuotaWindows(signals map[string]string, observedAt time.Time, model st
 			continue
 		}
 		prefix := strings.TrimSuffix(name, "Limit-Name")
+		hasWindow := false
 		for _, windowName := range []string{"Primary-", "Secondary-"} {
 			if window, present, valid := parseCodexWindow(signals, prefix+windowName, observedAt); present {
 				if valid {
+					hasWindow = true
 					windows = append(windows, window)
 				} else {
 					problems = append(problems, "codex "+prefix+windowName+" window")
 				}
 			}
+		}
+		if !hasWindow {
+			problems = append(problems, "codex "+prefix+" missing usable window")
 		}
 	}
 	return windows, problems

@@ -79,4 +79,13 @@ func TestCodexAdditionalWindowMatchesRequestedModelOnly(t *testing.T) {
 	if len(problems) != 0 || len(windows) != 2 || quotaStandingFor(windows, now).exhausted {
 		t.Fatalf("unrelated model windows=%v problems=%v", windows, problems)
 	}
+	prefix := "X-Codex-Additional-Gpt-5.3-Codex-Spark-Primary-"
+	for _, suffix := range []string{"Used-Percent", "Window-Minutes", "Reset-At"} {
+		delete(signals, prefix+suffix)
+	}
+	windows, problems = codexQuotaWindows(signals, now, "gpt-5.3-codex-spark")
+	standing := quotaStandingForSnapshot(windows, problems, now)
+	if len(problems) == 0 || standing.fresh {
+		t.Fatalf("missing model measurements standing=%+v problems=%v", standing, problems)
+	}
 }
