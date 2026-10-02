@@ -31,7 +31,7 @@ func (s *ExpiringFirstSelector) Pick(ctx context.Context, provider, model string
 	var bestStanding quotaStanding
 	var earliestReset time.Time
 	for _, auth := range available {
-		windows, problems := authQuotaWindows(auth, model)
+		windows, problems := authQuotaWindows(auth, quotaSelectionModel(ctx, auth, model))
 		s.warnUnparsable(auth, problems)
 		standing := quotaStandingForSnapshot(windows, problems, now)
 		standing.active = counts[auth.ID]

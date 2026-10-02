@@ -20,17 +20,17 @@ func (s *SessionAffinitySelector) withAssignmentCounts(ctx context.Context) cont
 	return withAssignedSessions(ctx, s.assignmentCounts())
 }
 
-func (s *SessionAffinitySelector) canInherit(auth *Auth, model string, now time.Time) bool {
+func (s *SessionAffinitySelector) canInherit(ctx context.Context, auth *Auth, model string, now time.Time) bool {
 	selector, ok := s.fallback.(*ExpiringFirstSelector)
 	if !ok {
 		return true
 	}
-	return selector.canInherit(auth, model, now, s.assignmentCounts()[auth.ID])
+	return selector.canInherit(auth, quotaSelectionModel(ctx, auth, model), now, s.assignmentCounts()[auth.ID])
 }
 
-func (s *SessionAffinitySelector) pinUsable(auth *Auth, model string, now time.Time) bool {
+func (s *SessionAffinitySelector) pinUsable(ctx context.Context, auth *Auth, model string, now time.Time) bool {
 	if _, ok := s.fallback.(*ExpiringFirstSelector); !ok {
 		return true
 	}
-	return !quotaStandingForAuth(auth, model, now).exhausted
+	return !quotaStandingForAuth(auth, quotaSelectionModel(ctx, auth, model), now).exhausted
 }

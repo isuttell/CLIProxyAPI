@@ -1063,7 +1063,7 @@ func (s *SessionAffinitySelector) Pick(ctx context.Context, provider, model stri
 	if fallbackKey == "" || isSubagent || isFork {
 		if cachedAuthID, ok := s.cache.GetAndRefresh(cacheKey); ok {
 			for _, auth := range available {
-				if auth.ID == cachedAuthID && s.pinUsable(auth, model, now) {
+				if auth.ID == cachedAuthID && s.pinUsable(ctx, auth, model, now) {
 					entry.Infof("session-affinity: cache hit | session=%s auth=%s provider=%s model=%s", truncateSessionID(primaryID), auth.ID, provider, model)
 					return auth, nil
 				}
@@ -1078,7 +1078,7 @@ func (s *SessionAffinitySelector) Pick(ctx context.Context, provider, model stri
 	cachedAuthID, hasPrimary := s.cache.GetAndRefresh(cacheKey)
 	if hasPrimary {
 		for _, auth := range available {
-			if auth.ID == cachedAuthID && s.pinUsable(auth, model, now) {
+			if auth.ID == cachedAuthID && s.pinUsable(ctx, auth, model, now) {
 				bind(auth.ID)
 				entry.Infof("session-affinity: cache hit | session=%s auth=%s provider=%s model=%s", truncateSessionID(primaryID), auth.ID, provider, model)
 				return auth, nil
@@ -1089,9 +1089,9 @@ func (s *SessionAffinitySelector) Pick(ctx context.Context, provider, model stri
 	if !hasPrimary && fallbackKey != "" {
 		if cachedAuthID, ok := s.cache.Get(fallbackKey); ok {
 			for _, auth := range available {
-				if auth.ID == cachedAuthID && s.pinUsable(auth, model, now) {
+				if auth.ID == cachedAuthID && s.pinUsable(ctx, auth, model, now) {
 					if (!isSubagent || s.subagentAffinity) &&
-						(!(isSubagent || isFork) || s.canInherit(auth, model, now)) {
+						(!(isSubagent || isFork) || s.canInherit(ctx, auth, model, now)) {
 						bind(auth.ID)
 						if isFork {
 							entry.Infof("session-affinity: fork cache hit | session=%s parent=%s auth=%s provider=%s model=%s", truncateSessionID(primaryID), truncateSessionID(fallbackID), auth.ID, provider, model)
@@ -1160,11 +1160,11 @@ func (s *SessionAffinitySelector) pickLCP(ctx context.Context, provider, model s
 
 	if match, ok := s.matcher.MatchFingerprintsWithContext(namespace, fingerprints, tailFingerprints, envDigest, minPrefixLength); ok {
 		for _, auth := range available {
-			if auth == nil || auth.ID != match.AuthID || !s.pinUsable(auth, model, time.Now()) {
+			if auth == nil || auth.ID != match.AuthID || !s.pinUsable(ctx, auth, model, time.Now()) {
 				continue
 			}
 			if match.IsFork {
-				if !s.canInherit(auth, model, time.Now()) {
+				if !s.canInherit(ctx, auth, model, time.Now()) {
 					break
 				}
 				bound := s.matcher.BindFingerprintsWithContext(namespace, fingerprints, tailFingerprints, envDigest, minPrefixLength, auth.ID)

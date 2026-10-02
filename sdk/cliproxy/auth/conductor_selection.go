@@ -72,6 +72,18 @@ func isBuiltInSelector(selector Selector) bool {
 	}
 }
 
+func usesExpiringFirst(selector Selector) bool {
+	switch selected := selector.(type) {
+	case *ExpiringFirstSelector:
+		return true
+	case *SessionAffinitySelector:
+		_, ok := selected.fallback.(*ExpiringFirstSelector)
+		return ok
+	default:
+		return false
+	}
+}
+
 type requiredAuthKindContextKey struct{}
 type credentialPolicyContextKey struct{}
 
@@ -560,9 +572,21 @@ func (m *Manager) availableAuthsForRouteModelWithPriorityMode(auths []*Auth, pro
 	cooldownCount := 0
 	unauthorizedCount := 0
 	var earliest time.Time
+	passiveQuotaSelection := usesExpiringFirst(m.selector)
+	if scheduler := m.pluginScheduler; scheduler != nil {
+		if state, ok := scheduler.(pluginSchedulerState); !ok || state.HasScheduler() {
+			passiveQuotaSelection = false
+		}
+	}
 	for _, candidate := range auths {
 		checkModel := m.selectionModelForAuth(candidate, routeModel)
 		blocked, reason, next := isAuthBlockedForModel(candidate, checkModel, now)
+		if !blocked && passiveQuotaSelection {
+			standing := quotaStandingForAuth(candidate, checkModel, now)
+			if standing.exhausted {
+				blocked, reason, next = true, blockReasonCooldown, standing.resetAt
+			}
+		}
 		if !blocked {
 			priority := authPriority(candidate)
 			availableByPriority[priority] = append(availableByPriority[priority], candidate)
@@ -653,10 +677,21 @@ func (m *Manager) availableAuthsForSelector(selector Selector, auths []*Auth, pr
 }
 
 func selectionArgForSelector(selector Selector, routeModel string) string {
-	if isBuiltInSelector(selector) {
+	if isBuiltInSelector(selector) && !usesExpiringFirst(selector) {
 		return ""
 	}
 	return routeModel
+}
+
+func (m *Manager) quotaSelectionModels(selector Selector, auths []*Auth, routeModel string) map[string]string {
+	if !usesExpiringFirst(selector) {
+		return nil
+	}
+	models := make(map[string]string, len(auths))
+	for _, auth := range auths {
+		models[auth.ID] = m.selectionModelForAuth(auth, routeModel)
+	}
+	return models
 }
 
 func selectorContextForAvailableAuths(ctx context.Context, selector Selector, routeModel string) context.Context {
@@ -1785,6 +1820,7 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 		m.warnLogAuthUnavailable(ctx, []string{provider}, model, opts, tried, errAvailable)
 		return nil, nil, errAvailable
 	}
+	selectionModels := m.quotaSelectionModels(selector, selectorAuths, model)
 	m.mu.RUnlock()
 
 	selected, handled, errPick := m.pickViaPluginScheduler(ctx, pluginScheduler, provider, []string{provider}, model, opts, tried, available)
@@ -1794,6 +1830,9 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 	}
 	if !handled {
 		selectorCtx := selectorContextForAvailableAuths(ctx, selector, model)
+		if selectionModels != nil {
+			selectorCtx = withQuotaSelectionModels(selectorCtx, selectionModels)
+		}
 		selected, errPick = selector.Pick(selectorCtx, provider, selectionArgForSelector(selector, model), opts, selectorAuths)
 		if errPick != nil {
 			if isBuiltInSelector(selector) {
@@ -2119,6 +2158,7 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 		m.warnLogAuthUnavailable(ctx, providers, model, opts, tried, errAvailable)
 		return nil, nil, "", errAvailable
 	}
+	selectionModels := m.quotaSelectionModels(selector, selectorAuths, model)
 	m.mu.RUnlock()
 
 	selected, handled, errPick := m.pickViaPluginScheduler(ctx, pluginScheduler, "mixed", providers, model, opts, tried, available)
@@ -2128,6 +2168,9 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 	}
 	if !handled {
 		selectorCtx := selectorContextForAvailableAuths(ctx, selector, model)
+		if selectionModels != nil {
+			selectorCtx = withQuotaSelectionModels(selectorCtx, selectionModels)
+		}
 		selected, errPick = selector.Pick(selectorCtx, "mixed", selectionArgForSelector(selector, model), opts, selectorAuths)
 		if errPick != nil {
 			if isBuiltInSelector(selector) {

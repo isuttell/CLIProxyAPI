@@ -142,6 +142,22 @@ func (s quotaStanding) routingScore() float64 {
 }
 
 type assignedSessionsKey struct{}
+type quotaSelectionModelsKey struct{}
+
+func withQuotaSelectionModels(ctx context.Context, models map[string]string) context.Context {
+	return context.WithValue(ctx, quotaSelectionModelsKey{}, models)
+}
+
+func quotaSelectionModel(ctx context.Context, auth *Auth, routeModel string) string {
+	if ctx != nil && auth != nil {
+		if models, ok := ctx.Value(quotaSelectionModelsKey{}).(map[string]string); ok {
+			if model := models[auth.ID]; model != "" {
+				return model
+			}
+		}
+	}
+	return routeModel
+}
 
 func withAssignedSessions(ctx context.Context, counts map[string]int) context.Context {
 	return context.WithValue(ctx, assignedSessionsKey{}, counts)
