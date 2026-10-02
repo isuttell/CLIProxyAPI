@@ -118,6 +118,9 @@ func TestExpiringFirstSelector_CodexRelativeResetAnchorsAtObservation(t *testing
 	relative := &Auth{ID: "a-relative", Provider: "codex", Status: StatusActive, Quota: QuotaState{
 		ObservedAt: now,
 		Signals: map[string]string{
+			"X-Codex-Primary-Used-Percent":          "10",
+			"X-Codex-Primary-Window-Minutes":        "300",
+			"X-Codex-Primary-Reset-At":              strconv.FormatInt(now.Add(time.Hour).Unix(), 10),
 			"X-Codex-Secondary-Used-Percent":        "20",
 			"X-Codex-Secondary-Window-Minutes":      "10080",
 			"X-Codex-Secondary-Reset-After-Seconds": strconv.Itoa(int((48 * time.Hour).Seconds())),
@@ -138,8 +141,32 @@ func TestExpiringFirstSelector_StaleAccountLimitFlagDoesNotBury(t *testing.T) {
 	recovered.Quota.Signals["Anthropic-Ratelimit-Unified-5h-Reset"] = strconv.FormatInt(now.Add(-time.Minute).Unix(), 10)
 	later := claudeQuotaAuth(t, "b-later", "0.10", "0.10", now.Add(5*24*time.Hour), "allowed")
 
-	if got := pickExpiringFirst(t, "claude", later, recovered); got != "a-recovered" {
-		t.Fatalf("Pick() = %q, want %q", got, "a-recovered")
+	if got := pickExpiringFirst(t, "claude", later, recovered); got != "b-later" {
+		t.Fatalf("Pick() = %q, want %q", got, "b-later")
+	}
+}
+
+func TestExpiringFirstSelector_SubscriptionPrecedesMeteredKey(t *testing.T) {
+	t.Parallel()
+	subscription := claudeQuotaAuth(t, "subscription", "0.9", "0.9", time.Now().Add(24*time.Hour), "allowed")
+	subscription.Attributes = map[string]string{AttributeAuthKind: AuthKindOAuth}
+	apiKey := &Auth{ID: "key", Provider: "claude", Status: StatusActive, Attributes: map[string]string{AttributeAuthKind: AuthKindAPIKey}}
+	if got := pickExpiringFirst(t, "claude", apiKey, subscription); got != subscription.ID {
+		t.Fatalf("Pick() = %q, want subscription", got)
+	}
+}
+
+func TestExpiringFirstSelector_ExhaustedSubscriptionYieldsToKey(t *testing.T) {
+	t.Parallel()
+	subscription := claudeQuotaAuth(t, "subscription", "1", "0.5", time.Now().Add(24*time.Hour), "allowed")
+	subscription.Attributes = map[string]string{AttributeAuthKind: AuthKindOAuth}
+	apiKey := &Auth{ID: "key", Provider: "claude", Status: StatusActive, Attributes: map[string]string{AttributeAuthKind: AuthKindAPIKey}}
+	apiKey.Quota = subscription.Quota.Clone()
+	if got := pickExpiringFirst(t, "claude", subscription, apiKey); got != apiKey.ID {
+		t.Fatalf("Pick() = %q, want key", got)
+	}
+	if _, err := (&ExpiringFirstSelector{}).Pick(context.Background(), "claude", "model", cliproxyexecutor.Options{}, []*Auth{subscription}); err == nil {
+		t.Fatal("Pick() dispatched a credibly exhausted subscription")
 	}
 }
 
