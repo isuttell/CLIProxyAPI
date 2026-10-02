@@ -1052,8 +1052,9 @@ func TestSessionAffinitySelectorNilFallbackNoPanic(t *testing.T) {
 	}
 	candidates := []*Auth{{ID: "auth-1", Status: StatusActive}}
 	auth, err := selector.Pick(context.Background(), "openai", "gpt-4o", opts, candidates)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	selectionErr, ok := err.(*Error)
+	if !ok || selectionErr.Code != "auth_not_found" {
+		t.Fatalf("error = %v, want auth_not_found", err)
 	}
 	if auth != nil {
 		t.Fatalf("expected nil auth, got %+v", auth)

@@ -142,6 +142,9 @@ func TestSessionAffinityExpiringFirstBalancesIndependentSessions(t *testing.T) {
 		claudeQuotaAuth(t, "a", "0.10", "0.10", reset, "allowed"),
 		claudeQuotaAuth(t, "b", "0.10", "0.10", reset, "allowed"),
 	}
+	auths[0].Attributes = map[string]string{AttributeAuthKind: AuthKindOAuth}
+	auths[1].Attributes = map[string]string{AttributeAuthKind: AuthKindOAuth}
+	auths[1].Quota = auths[0].Quota
 	counts := map[string]int{}
 	for i := 0; i < 6; i++ {
 		picked, err := selector.Pick(context.Background(), "claude", "model", explicitSessionOptions(fmt.Sprintf("session-%d", i)), auths)
@@ -170,9 +173,11 @@ func TestSessionAffinityExpiringFirstAdaptiveChild(t *testing.T) {
 			selector := NewSessionAffinitySelector(&ExpiringFirstSelector{})
 			defer selector.Stop()
 			reset := time.Now().Add(48 * time.Hour)
-			parent := claudeQuotaAuth(t, "a", test.used, test.used, reset, "allowed")
+			var parent *Auth
 			if test.unknown {
 				parent = &Auth{ID: "a", Provider: "claude", Status: StatusActive}
+			} else {
+				parent = claudeQuotaAuth(t, "a", test.used, test.used, reset, "allowed")
 			}
 			other := claudeQuotaAuth(t, "b", "0.10", "0.10", reset, "allowed")
 			root := explicitSessionOptions("root")
@@ -232,6 +237,22 @@ func TestSessionAffinityExpiringFirstKnownExhaustedPinFailsOver(t *testing.T) {
 				t.Fatalf("recovered former pin = %v, %v; want sticky b", selected, err)
 			}
 		})
+	}
+}
+
+func TestSessionAffinityExpiringFirstLowNonzeroPinStaysSticky(t *testing.T) {
+	selector := NewSessionAffinitySelector(&ExpiringFirstSelector{})
+	defer selector.Stop()
+	reset := time.Now().Add(48 * time.Hour)
+	weak := claudeQuotaAuth(t, "a", "0.98", "0.98", reset, "allowed")
+	strong := claudeQuotaAuth(t, "b", "0.10", "0.10", reset, "allowed")
+	first, err := selector.Pick(context.Background(), "claude", "model", explicitSessionOptions("low-but-live"), []*Auth{weak})
+	if err != nil || first == nil || first.ID != "a" {
+		t.Fatalf("initial Pick() = %v, %v; want a", first, err)
+	}
+	selected, err := selector.Pick(context.Background(), "claude", "model", explicitSessionOptions("low-but-live"), []*Auth{weak, strong})
+	if err != nil || selected == nil || selected.ID != "a" {
+		t.Fatalf("live low pin = %v, %v; want a", selected, err)
 	}
 }
 
