@@ -2,9 +2,9 @@ package cliproxy
 
 import (
 	"context"
-	"strings"
 	"time"
 
+	internalconfig "github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/watcher/synthesizer"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/config"
@@ -31,39 +31,27 @@ type routingRuntimeState struct {
 	sessionAffinitySubagents bool
 }
 
-func normalizedRoutingRuntimeState(cfg *config.Config) routingRuntimeState {
+func normalizedRoutingRuntimeState(cfg *config.Config) (routingRuntimeState, error) {
 	state := routingRuntimeState{
 		strategy:                 "round-robin",
-		sessionAffinityTTL:       8 * time.Hour,
+		sessionAffinityTTL:       internalconfig.DefaultSessionAffinityTTL,
 		sessionAffinitySubagents: true,
 	}
 	if cfg == nil {
-		return state
+		return state, nil
 	}
 
-	switch strings.ToLower(strings.TrimSpace(cfg.Routing.Strategy)) {
-	case "round-robin", "roundrobin", "rr":
-		state.strategy = "round-robin"
-	case "weighted-round-robin", "weightedroundrobin", "wrr":
-		state.strategy = "weighted-round-robin"
-	case "fill-first", "fillfirst", "ff":
-		state.strategy = "fill-first"
-	case "expiring-first", "expiringfirst", "ef":
-		state.strategy = "expiring-first"
+	strategy, ttl, errNormalize := cfg.Routing.Normalize()
+	if errNormalize != nil {
+		return routingRuntimeState{}, errNormalize
 	}
+	state.strategy = strategy
+	state.sessionAffinityTTL = ttl
 	state.sessionAffinity = cfg.Routing.SessionAffinity
-	if ttl := strings.TrimSpace(cfg.Routing.SessionAffinityTTL); ttl != "" {
-		if parsed, errParse := time.ParseDuration(ttl); errParse == nil && parsed > 0 {
-			if parsed < time.Second {
-				parsed = time.Second
-			}
-			state.sessionAffinityTTL = parsed
-		}
-	}
 	if state.sessionAffinity && cfg.Routing.SessionAffinitySubagents != nil {
 		state.sessionAffinitySubagents = *cfg.Routing.SessionAffinitySubagents
 	}
-	return state
+	return state, nil
 }
 
 func newRoutingSelector(state routingRuntimeState) coreauth.Selector {
@@ -223,7 +211,11 @@ func (s *Service) applyManagerConfig(ctx context.Context, commit configCommit) b
 	if errContext := ctx.Err(); errContext != nil {
 		return false
 	}
-	routingState := normalizedRoutingRuntimeState(commit.cfg)
+	routingState, errRouting := normalizedRoutingRuntimeState(commit.cfg)
+	if errRouting != nil {
+		log.WithError(errRouting).Warn("rejected config runtime with invalid routing")
+		return false
+	}
 	if s.appliedRoutingState == nil || *s.appliedRoutingState != routingState {
 		s.coreManager.SetSelector(newRoutingSelector(routingState))
 		s.appliedRoutingState = &routingState

@@ -362,7 +362,7 @@ type RoutingConfig struct {
 	SessionAffinity bool `yaml:"session-affinity,omitempty" json:"session-affinity,omitempty"`
 
 	// SessionAffinityTTL specifies how long session-to-auth bindings are retained.
-	// Default: 8h. Accepts positive duration strings like "30m", "1h", "2h30m".
+	// Default: 8h. Accepts duration strings of at least 1s like "30m", "1h", "2h30m".
 	SessionAffinityTTL string `yaml:"session-affinity-ttl,omitempty" json:"session-affinity-ttl,omitempty"`
 
 	// SessionAffinitySubagents controls whether subagents (child sessions with parent references)

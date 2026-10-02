@@ -83,6 +83,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	cfg.CredentialInFlight = DefaultCredentialInFlightConfig()
 	if err = yaml.Unmarshal(data, &cfg); err != nil {
 		if optional {
+			if errRouting := routingDecodeError(data); errRouting != nil {
+				return nil, errRouting
+			}
 			// In cloud deploy mode, if YAML parsing fails, return empty config instead of error.
 			cfgOptional := &Config{CredentialInFlight: DefaultCredentialInFlightConfig()}
 			cfgOptional.NormalizePluginsConfig()

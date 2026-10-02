@@ -145,7 +145,7 @@ routing:
   # credential is kept even if a higher-priority credential recovers. Credential priority
   # still decides cold bindings, requests without a session, and post-failover rebinding.
   session-affinity: false # default: false
-  # How long idle session-to-auth bindings are retained. Default: 8h
+  # How long idle session-to-auth bindings are retained. Default: 8h; minimum: 1s.
   session-affinity-ttl: "8h"
   # When true (default), subagents (child sessions with parent references) inherit and bind
   # to the parent's upstream credential across all providers (Claude, Codex, Antigravity, Gemini),

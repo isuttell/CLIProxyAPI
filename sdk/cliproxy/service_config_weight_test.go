@@ -11,9 +11,12 @@ import (
 )
 
 func TestWeightedRoundRobinRoutingSelector(t *testing.T) {
-	state := normalizedRoutingRuntimeState(&internalconfig.Config{
+	state, errRouting := normalizedRoutingRuntimeState(&internalconfig.Config{
 		Routing: internalconfig.RoutingConfig{Strategy: "wrr"},
 	})
+	if errRouting != nil {
+		t.Fatal(errRouting)
+	}
 	if state.strategy != "weighted-round-robin" {
 		t.Fatalf("strategy = %q, want weighted-round-robin", state.strategy)
 	}
@@ -23,9 +26,12 @@ func TestWeightedRoundRobinRoutingSelector(t *testing.T) {
 }
 
 func TestExpiringFirstRoutingSelector(t *testing.T) {
-	state := normalizedRoutingRuntimeState(&internalconfig.Config{
+	state, errRouting := normalizedRoutingRuntimeState(&internalconfig.Config{
 		Routing: internalconfig.RoutingConfig{Strategy: "expiring-first"},
 	})
+	if errRouting != nil {
+		t.Fatal(errRouting)
+	}
 	if state.strategy != "expiring-first" {
 		t.Fatalf("strategy = %q, want expiring-first", state.strategy)
 	}
@@ -35,7 +41,10 @@ func TestExpiringFirstRoutingSelector(t *testing.T) {
 }
 
 func TestRoutingDefaultsToEightHourIdleAffinity(t *testing.T) {
-	state := normalizedRoutingRuntimeState(&internalconfig.Config{Routing: internalconfig.RoutingConfig{SessionAffinity: true}})
+	state, errRouting := normalizedRoutingRuntimeState(&internalconfig.Config{Routing: internalconfig.RoutingConfig{SessionAffinity: true}})
+	if errRouting != nil {
+		t.Fatal(errRouting)
+	}
 	if state.sessionAffinityTTL != 8*time.Hour {
 		t.Fatalf("session affinity TTL = %s, want 8h", state.sessionAffinityTTL)
 	}
@@ -46,6 +55,7 @@ func TestBuilderRejectsInvalidRouting(t *testing.T) {
 		{Strategy: "unknown"},
 		{SessionAffinityTTL: "later"},
 		{SessionAffinityTTL: "0s"},
+		{SessionAffinityTTL: "500ms"},
 	} {
 		_, errBuild := NewBuilder().WithConfig(&internalconfig.Config{Routing: routing}).WithConfigPath(t.TempDir() + "/config.yaml").Build()
 		if errBuild == nil {
@@ -63,6 +73,7 @@ func TestServiceRejectsInvalidRoutingConfigCommit(t *testing.T) {
 		{Strategy: "unknown"},
 		{SessionAffinityTTL: "invalid"},
 		{SessionAffinityTTL: "-1h"},
+		{SessionAffinityTTL: "500ms"},
 	} {
 		if service.applyConfigUpdateWithAuthSynthesis(nil, &internalconfig.Config{Routing: routing}, true) {
 			t.Fatalf("hot config accepted invalid routing %+v", routing)

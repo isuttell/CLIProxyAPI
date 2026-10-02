@@ -264,7 +264,10 @@ func (b *Builder) Build() (*Service, error) {
 			}
 		}
 
-		routingState := normalizedRoutingRuntimeState(b.cfg)
+		routingState, errRouting := normalizedRoutingRuntimeState(b.cfg)
+		if errRouting != nil {
+			return nil, fmt.Errorf("cliproxy: normalize routing: %w", errRouting)
+		}
 		coreManager = coreauth.NewManager(tokenStore, newRoutingSelector(routingState), nil)
 		appliedRoutingState = &routingState
 	}
