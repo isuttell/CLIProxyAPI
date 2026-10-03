@@ -462,6 +462,10 @@ func (o *ClaudeAuth) ExchangeCodeForTokens(ctx context.Context, code, state stri
 		}
 	}
 
+	if tokenData.AccountUUID != "" && tokenData.OrganizationUUID != "" {
+		tokenData.IdentityProvenance = "anthropic_oauth"
+	}
+
 	// Create auth bundle.
 	bundle := &ClaudeAuthBundle{
 		TokenData:   tokenData,
@@ -593,6 +597,9 @@ func (o *ClaudeAuth) refreshTokensSingleFlight(ctx context.Context, refreshToken
 	tokenData.AccountUUID = profile.Account.UUID
 	tokenData.OrganizationUUID = profile.Organization.UUID
 	tokenData.OrganizationName = profile.Organization.Name
+	if tokenData.AccountUUID != "" && tokenData.OrganizationUUID != "" {
+		tokenData.IdentityProvenance = "anthropic_oauth"
+	}
 	return tokenData, nil
 }
 
@@ -607,15 +614,16 @@ func (o *ClaudeAuth) refreshTokensSingleFlight(ctx context.Context, refreshToken
 //   - *ClaudeTokenStorage: A new token storage instance
 func (o *ClaudeAuth) CreateTokenStorage(bundle *ClaudeAuthBundle) *ClaudeTokenStorage {
 	storage := &ClaudeTokenStorage{
-		AccessToken:      bundle.TokenData.AccessToken,
-		RefreshToken:     bundle.TokenData.RefreshToken,
-		LastRefresh:      bundle.LastRefresh,
-		Email:            bundle.TokenData.Email,
-		AccountUUID:      bundle.TokenData.AccountUUID,
-		OrganizationUUID: bundle.TokenData.OrganizationUUID,
-		OrganizationName: bundle.TokenData.OrganizationName,
-		DeviceIDs:        append([]string(nil), bundle.DeviceIDs...),
-		Expire:           bundle.TokenData.Expire,
+		AccessToken:        bundle.TokenData.AccessToken,
+		RefreshToken:       bundle.TokenData.RefreshToken,
+		LastRefresh:        bundle.LastRefresh,
+		Email:              bundle.TokenData.Email,
+		AccountUUID:        bundle.TokenData.AccountUUID,
+		IdentityProvenance: bundle.TokenData.IdentityProvenance,
+		OrganizationUUID:   bundle.TokenData.OrganizationUUID,
+		OrganizationName:   bundle.TokenData.OrganizationName,
+		DeviceIDs:          append([]string(nil), bundle.DeviceIDs...),
+		Expire:             bundle.TokenData.Expire,
 	}
 
 	return storage
@@ -669,6 +677,8 @@ func (o *ClaudeAuth) RefreshTokensWithRetry(ctx context.Context, refreshToken st
 //   - storage: The existing token storage to update
 //   - tokenData: The new token data to apply
 func (o *ClaudeAuth) UpdateTokenStorage(storage *ClaudeTokenStorage, tokenData *ClaudeTokenData) {
+	identityChanged := tokenData.AccountUUID != "" && tokenData.AccountUUID != storage.AccountUUID ||
+		tokenData.OrganizationUUID != "" && tokenData.OrganizationUUID != storage.OrganizationUUID
 	storage.AccessToken = tokenData.AccessToken
 	storage.RefreshToken = tokenData.RefreshToken
 	storage.LastRefresh = time.Now().Format(time.RFC3339)
@@ -683,6 +693,11 @@ func (o *ClaudeAuth) UpdateTokenStorage(storage *ClaudeTokenStorage, tokenData *
 	}
 	if tokenData.OrganizationName != "" {
 		storage.OrganizationName = tokenData.OrganizationName
+	}
+	if tokenData.IdentityProvenance == "anthropic_oauth" {
+		storage.IdentityProvenance = tokenData.IdentityProvenance
+	} else if identityChanged {
+		storage.IdentityProvenance = ""
 	}
 	storage.Expire = tokenData.Expire
 }

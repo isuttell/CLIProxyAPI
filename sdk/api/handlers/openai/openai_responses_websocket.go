@@ -271,7 +271,7 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 		return
 	}
 	var duplexInput <-chan cliproxyexecutor.WebsocketInput
-	if h != nil && h.Cfg != nil && h.Cfg.CodexResponseSteering {
+	if h != nil && h.CurrentConfig() != nil && h.CurrentConfig().CodexResponseSteering {
 		socketCtx, cancelSocket := context.WithCancel(c.Request.Context())
 		defer cancelSocket()
 		c.Request = c.Request.WithContext(socketCtx)
@@ -284,7 +284,7 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 	clientIP := websocketClientAddress(c)
 	log.Infof("responses websocket: client connected id=%s remote=%s", passthroughSessionID, clientIP)
 
-	requestLogEnabled := h != nil && h.Cfg != nil && h.Cfg.RequestLog
+	requestLogEnabled := h != nil && h.CurrentConfig() != nil && h.CurrentConfig().RequestLog
 	wsTimelineLog := newWebsocketTimelineLog(requestLogEnabled, websocketTimelineSourceFromContext(c))
 
 	wsDone := make(chan struct{})
@@ -716,7 +716,7 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 				return
 			}
 			attemptedUpstreamMode = upstreamModeForAuth(selectedAuth)
-			steeringAllowed := h.Cfg == nil || !h.Cfg.OAuthOnlyFields["codex.response-steering"] || selectedAuth.AuthKind() != coreauth.AuthKindAPIKey
+			steeringAllowed := h.CurrentConfig() == nil || !h.CurrentConfig().OAuthOnlyFields["codex.response-steering"] || selectedAuth.AuthKind() != coreauth.AuthKindAPIKey
 			codexDuplexStream.Store(duplexInput != nil && steeringAllowed && attemptedUpstreamMode == responsesWebsocketUpstreamModeWS && strings.EqualFold(strings.TrimSpace(selectedAuth.Provider), "codex"))
 			preserveNativeOutput.Store(nativeRequest && strings.EqualFold(strings.TrimSpace(selectedAuth.Provider), "codex"))
 		})

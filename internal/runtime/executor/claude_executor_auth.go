@@ -166,14 +166,18 @@ func (e *ClaudeExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (
 	if err != nil {
 		return nil, err
 	}
+	if storage, ok := auth.Storage.(*claudeauth.ClaudeTokenStorage); ok && storage != nil {
+		updated := *storage
+		svc.UpdateTokenStorage(&updated, td)
+		auth.Storage = &updated
+	}
 	claudeauth.EnsureMetadataMap(&auth.Metadata)
 	claudeauth.StoreMetadataValue(&auth.Metadata, "access_token", td.AccessToken)
 	claudeauth.StoreMetadataString(&auth.Metadata, "refresh_token", td.RefreshToken)
 	// Profile fields are optional when token rotation succeeds but the follow-up
 	// profile lookup fails. Never erase the previously resolved credential identity.
 	claudeauth.StoreMetadataString(&auth.Metadata, "email", td.Email)
-	claudeauth.StoreMetadataString(&auth.Metadata, "account_uuid", td.AccountUUID)
-	claudeauth.StoreMetadataString(&auth.Metadata, "organization_uuid", td.OrganizationUUID)
+	claudeauth.StoreOAuthIdentity(&auth.Metadata, td.OrganizationUUID, td.AccountUUID, td.IdentityProvenance)
 	claudeauth.StoreMetadataString(&auth.Metadata, "organization_name", td.OrganizationName)
 	claudeauth.StoreMetadataValue(&auth.Metadata, "expired", td.Expire)
 	claudeauth.StoreMetadataValue(&auth.Metadata, "type", "claude")

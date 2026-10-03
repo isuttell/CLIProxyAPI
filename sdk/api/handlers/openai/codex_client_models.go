@@ -10,9 +10,9 @@ func (h *OpenAIAPIHandler) codexClientModelsResponse(clientVersion ...string) ma
 	if len(clientVersion) > 0 {
 		version = clientVersion[0]
 	}
-	optimizeMultiAgentV2 := h != nil && h.Cfg != nil && h.Cfg.Client.Codex.OptimizeMultiAgentV2
+	optimizeMultiAgentV2 := h != nil && h.CurrentConfig() != nil && h.CurrentConfig().Client.Codex.OptimizeMultiAgentV2
 	var applyPatchCapabilityForModel codexmodels.ApplyPatchCapabilityForModelFunc
-	if h != nil && h.Cfg != nil && h.Cfg.Client.Codex.EnableApplyPatch {
+	if h != nil && h.CurrentConfig() != nil && h.CurrentConfig().Client.Codex.EnableApplyPatch {
 		applyPatchCapabilityForModel = h.SupportsApplyPatchModel
 	}
 	modelRegistry := registry.GetGlobalRegistry()

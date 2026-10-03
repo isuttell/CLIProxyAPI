@@ -112,6 +112,11 @@ func (s *Service) commitConfigUpdate(newCfg *config.Config) configCommit {
 		return configCommit{}
 	}
 
+	if errTraceFlow := s.validateTraceFlowReload(newCfg); errTraceFlow != nil {
+		log.WithError(errTraceFlow).Warn("rejected Trace Flow configuration reload; keeping previous configuration")
+		return configCommit{}
+	}
+
 	s.cfgMu.Lock()
 	s.cfg = newCfg
 	s.cfgMu.Unlock()
@@ -144,6 +149,10 @@ func (s *Service) applyConfigRuntime(ctx context.Context, commit configCommit, s
 	}
 	if errContext := ctx.Err(); errContext != nil {
 		return false
+	}
+
+	if s.traceFlow != nil {
+		s.traceFlow.SetEnabled(cfg.TraceFlow.Enabled)
 	}
 
 	if !s.applyManagerConfig(ctx, commit) {

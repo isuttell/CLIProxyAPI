@@ -538,3 +538,24 @@ func TestUpdateTokenStoragePreservesAccountWhenRefreshOmitsIt(t *testing.T) {
 		t.Fatalf("organization = %q/%q, want preserved", storage.OrganizationUUID, storage.OrganizationName)
 	}
 }
+
+func TestUpdateTokenStorageInvalidatesUnverifiedIdentityChanges(t *testing.T) {
+	for _, test := range []struct{ name, account, organization, provenance, want string }{
+		{"omitted", "", "", "", "anthropic_oauth"},
+		{"unchanged", "account", "org", "", "anthropic_oauth"},
+		{"account changed", "other-account", "", "", ""},
+		{"organization changed", "", "other-org", "", ""},
+		{"verified replacement", "other-account", "other-org", "anthropic_oauth", "anthropic_oauth"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			storage := &ClaudeTokenStorage{AccountUUID: "account", OrganizationUUID: "org", IdentityProvenance: "anthropic_oauth"}
+			(&ClaudeAuth{}).UpdateTokenStorage(storage, &ClaudeTokenData{AccountUUID: test.account, OrganizationUUID: test.organization, IdentityProvenance: test.provenance})
+			if storage.IdentityProvenance != test.want {
+				t.Fatalf("provenance = %q, want %q", storage.IdentityProvenance, test.want)
+			}
+			if test.account != "" && storage.AccountUUID != test.account || test.organization != "" && storage.OrganizationUUID != test.organization {
+				t.Fatal("identity update lost")
+			}
+		})
+	}
+}

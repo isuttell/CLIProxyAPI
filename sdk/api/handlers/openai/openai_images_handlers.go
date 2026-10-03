@@ -79,7 +79,7 @@ func (h *OpenAIAPIHandler) newImagesStreamKeepAliveTicker() (*time.Ticker, <-cha
 	if h == nil || h.BaseAPIHandler == nil {
 		return nil, nil
 	}
-	interval := handlers.StreamingKeepAliveInterval(h.Cfg)
+	interval := handlers.StreamingKeepAliveInterval(h.CurrentConfig())
 	if interval <= 0 {
 		return nil, nil
 	}
@@ -617,7 +617,7 @@ func parseBoolField(raw string, fallback bool) bool {
 }
 
 func (h *OpenAIAPIHandler) ImagesGenerations(c *gin.Context) {
-	if h != nil && h.BaseAPIHandler != nil && h.BaseAPIHandler.Cfg != nil && h.BaseAPIHandler.Cfg.DisableImageGeneration == internalconfig.DisableImageGenerationAll {
+	if h != nil && h.BaseAPIHandler != nil && h.BaseAPIHandler.CurrentConfig() != nil && h.BaseAPIHandler.CurrentConfig().DisableImageGeneration == internalconfig.DisableImageGenerationAll {
 		c.AbortWithStatus(http.StatusNotFound)
 		return
 	}
@@ -721,7 +721,7 @@ func (h *OpenAIAPIHandler) ImagesGenerations(c *gin.Context) {
 }
 
 func (h *OpenAIAPIHandler) ImagesEdits(c *gin.Context) {
-	if h != nil && h.BaseAPIHandler != nil && h.BaseAPIHandler.Cfg != nil && h.BaseAPIHandler.Cfg.DisableImageGeneration == internalconfig.DisableImageGenerationAll {
+	if h != nil && h.BaseAPIHandler != nil && h.BaseAPIHandler.CurrentConfig() != nil && h.BaseAPIHandler.CurrentConfig().DisableImageGeneration == internalconfig.DisableImageGenerationAll {
 		c.AbortWithStatus(http.StatusNotFound)
 		return
 	}
