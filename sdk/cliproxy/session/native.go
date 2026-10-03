@@ -132,7 +132,10 @@ func ExtractNativeIdentity(headers http.Header, payload []byte) NativeIdentity {
 	if turn.Get("subagent_kind").String() == "thread_spawn" {
 		subagentSignal = true
 	}
-	if name := strings.TrimPrefix(turn.Get("agent_name").String(), "/root/"); name != "" && name != "root" && name != "main" {
+	name := strings.TrimPrefix(turn.Get("agent_name").String(), "/root/")
+	name = strings.TrimPrefix(name, "/")
+	name = strings.TrimSpace(name)
+	if name != "" && name != "root" && name != "main" {
 		subagentSignal = true
 	}
 	if identity.SessionID != "" && (identity.SessionID == identity.ParentSessionID || !provenThread && subagentSignal) {

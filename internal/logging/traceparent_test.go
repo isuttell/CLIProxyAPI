@@ -14,6 +14,8 @@ func TestParseTraceparent(t *testing.T) {
 		ok      bool
 	}{
 		{"valid", http.Header{"Traceparent": {valid}}, true},
+		{"sampled and random flags", http.Header{"Traceparent": {valid[:len(valid)-2] + "03"}}, true},
+		{"invalid flags", http.Header{"Traceparent": {valid[:len(valid)-2] + "04"}}, false},
 		{"surrounding whitespace", http.Header{"Traceparent": {"  " + valid + "  "}}, true},
 		{"tracestate ignored", http.Header{"Traceparent": {valid}, "Tracestate": {"bad=value"}}, true},
 		{"future version", http.Header{"Traceparent": {"01" + valid[2:] + "-extra"}}, true},
