@@ -10,6 +10,8 @@ type AccountIdentity struct {
 	organizationUUID string
 	accountUUID      string
 	snapshot         bool
+	subscription     bool
+	plan             string
 }
 
 // NewSelected records the selected credential's identity facts before asynchronous dispatch.
@@ -21,6 +23,13 @@ func NewSelected(executorType, providerKey, authID, workspaceID, memberID, organ
 	}
 }
 
+// WithSubscriptionPlan marks the credential as a subscription login and records its provider-local plan.
+// The plan is descriptive only and never participates in identity derivation.
+func (i AccountIdentity) WithSubscriptionPlan(plan string) AccountIdentity {
+	i.subscription, i.plan = true, plan
+	return i
+}
+
 func (i AccountIdentity) Family() string             { return i.family }
 func (i AccountIdentity) ProviderKey() string        { return i.providerKey }
 func (i AccountIdentity) AuthID() string             { return i.authID }
@@ -29,6 +38,8 @@ func (i AccountIdentity) MemberID() string           { return i.memberID }
 func (i AccountIdentity) OrganizationUUID() string   { return i.organizationUUID }
 func (i AccountIdentity) AccountUUID() string        { return i.accountUUID }
 func (i AccountIdentity) IsCredentialSnapshot() bool { return i.snapshot }
+func (i AccountIdentity) IsSubscription() bool       { return i.subscription }
+func (i AccountIdentity) Plan() string               { return i.plan }
 func (i AccountIdentity) String() string             { return "{account identity redacted}" }
 func (i AccountIdentity) GoString() string           { return i.String() }
 

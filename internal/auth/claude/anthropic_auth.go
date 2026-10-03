@@ -152,15 +152,19 @@ type authorizationCodeExchangeRequest struct {
 	State        string `json:"state"`
 }
 
-// OAuthProfile is the account identity returned by Anthropic's OAuth profile endpoint.
+// OAuthProfile is the account identity and subscription tier returned by Anthropic's OAuth profile endpoint.
 type OAuthProfile struct {
 	Account struct {
-		UUID  string `json:"uuid"`
-		Email string `json:"email"`
+		UUID         string `json:"uuid"`
+		Email        string `json:"email"`
+		HasClaudeMax bool   `json:"has_claude_max"`
+		HasClaudePro bool   `json:"has_claude_pro"`
 	} `json:"account"`
 	Organization struct {
-		UUID string `json:"uuid"`
-		Name string `json:"name"`
+		UUID             string `json:"uuid"`
+		Name             string `json:"name"`
+		OrganizationType string `json:"organization_type"`
+		RateLimitTier    string `json:"rate_limit_tier"`
 	} `json:"organization"`
 }
 
@@ -460,6 +464,8 @@ func (o *ClaudeAuth) ExchangeCodeForTokens(ctx context.Context, code, state stri
 		if value := strings.TrimSpace(profile.Organization.Name); value != "" {
 			tokenData.OrganizationName = value
 		}
+		tokenData.PlanType = profile.PlanType()
+		tokenData.ProfileRead = true
 	}
 
 	if tokenData.AccountUUID != "" && tokenData.OrganizationUUID != "" {
@@ -597,6 +603,8 @@ func (o *ClaudeAuth) refreshTokensSingleFlight(ctx context.Context, refreshToken
 	tokenData.AccountUUID = profile.Account.UUID
 	tokenData.OrganizationUUID = profile.Organization.UUID
 	tokenData.OrganizationName = profile.Organization.Name
+	tokenData.PlanType = profile.PlanType()
+	tokenData.ProfileRead = true
 	if tokenData.AccountUUID != "" && tokenData.OrganizationUUID != "" {
 		tokenData.IdentityProvenance = "anthropic_oauth"
 	}
@@ -622,6 +630,7 @@ func (o *ClaudeAuth) CreateTokenStorage(bundle *ClaudeAuthBundle) *ClaudeTokenSt
 		IdentityProvenance: bundle.TokenData.IdentityProvenance,
 		OrganizationUUID:   bundle.TokenData.OrganizationUUID,
 		OrganizationName:   bundle.TokenData.OrganizationName,
+		PlanType:           bundle.TokenData.PlanType,
 		DeviceIDs:          append([]string(nil), bundle.DeviceIDs...),
 		Expire:             bundle.TokenData.Expire,
 	}
@@ -698,6 +707,10 @@ func (o *ClaudeAuth) UpdateTokenStorage(storage *ClaudeTokenStorage, tokenData *
 		storage.IdentityProvenance = tokenData.IdentityProvenance
 	} else if identityChanged {
 		storage.IdentityProvenance = ""
+	}
+	// A failed profile lookup keeps the cached plan; a successful one is authoritative even when empty.
+	if tokenData.ProfileRead {
+		storage.PlanType = tokenData.PlanType
 	}
 	storage.Expire = tokenData.Expire
 }

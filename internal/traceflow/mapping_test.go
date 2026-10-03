@@ -41,7 +41,7 @@ func TestMapRecordContractAndWhitelist(t *testing.T) {
 		t.Fatal("wrong scope")
 	}
 	span := item.ScopeSpans[0].Spans[0]
-	if len(span.Attributes) > 32 || span.StartTimeUnixNano != uint64(record.RequestedAt.UnixNano()) || span.EndTimeUnixNano != uint64(record.RequestedAt.Add(time.Second).UnixNano()) {
+	if len(span.Attributes) > maxSpanAttributes || span.StartTimeUnixNano != uint64(record.RequestedAt.UnixNano()) || span.EndTimeUnixNano != uint64(record.RequestedAt.Add(time.Second).UnixNano()) {
 		t.Fatal("invalid span shape")
 	}
 	if len(span.TraceId) != 16 || len(span.SpanId) != 8 || !bytes.Equal(span.SpanId, span.TraceId[8:]) {

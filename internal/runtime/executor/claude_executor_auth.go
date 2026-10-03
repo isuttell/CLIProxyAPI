@@ -126,6 +126,7 @@ func (e *ClaudeExecutor) PrepareRequestAuth(ctx context.Context, auth *cliproxya
 	claudeauth.StoreMetadataString(&auth.Metadata, "email", profile.Account.Email)
 	claudeauth.StoreMetadataString(&auth.Metadata, "organization_uuid", profile.Organization.UUID)
 	claudeauth.StoreMetadataString(&auth.Metadata, "organization_name", profile.Organization.Name)
+	claudeauth.StorePlanType(&auth.Metadata, profile.PlanType())
 	claudeauth.StoreMetadataString(&auth.Metadata, claudeAccountProfileCheckedAtKey, time.Now().UTC().Format(time.RFC3339))
 	return auth, nil
 }
@@ -179,6 +180,9 @@ func (e *ClaudeExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (
 	claudeauth.StoreMetadataString(&auth.Metadata, "email", td.Email)
 	claudeauth.StoreOAuthIdentity(&auth.Metadata, td.OrganizationUUID, td.AccountUUID, td.IdentityProvenance)
 	claudeauth.StoreMetadataString(&auth.Metadata, "organization_name", td.OrganizationName)
+	if td.ProfileRead {
+		claudeauth.StorePlanType(&auth.Metadata, td.PlanType)
+	}
 	claudeauth.StoreMetadataValue(&auth.Metadata, "expired", td.Expire)
 	claudeauth.StoreMetadataValue(&auth.Metadata, "type", "claude")
 	claudeauth.StoreMetadataValue(&auth.Metadata, "last_refresh", time.Now().Format(time.RFC3339))

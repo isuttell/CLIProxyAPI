@@ -81,6 +81,10 @@ func mapRecord(record usage.Record, installation uuid.UUID, secret []byte) (*tra
 	if ref != "" {
 		attrs = append(attrs, stringAttr("cliproxyapi.account.ref", ref))
 	}
+	// Trace Flow rejects a plan alongside unknown coverage.
+	if plan := accountPlan(identity, family); plan != "" && coverage != "unknown" {
+		attrs = append(attrs, stringAttr("cliproxyapi.account.plan", plan))
+	}
 	if token64Pattern.MatchString(record.TraceID) && !sensitive(record.TraceID) {
 		attrs = append(attrs, stringAttr("cliproxyapi.request.id", record.TraceID))
 	}
@@ -139,8 +143,8 @@ func mapRecord(record usage.Record, installation uuid.UUID, secret []byte) (*tra
 	} else {
 		attrs = append(attrs, boolAttr("gen_ai.usage.missing", true))
 	}
-	if len(attrs) > 32 {
-		return nil, "", "attribute_count", errors.New("too many span attributes")
+	if err := checkAttributeCount(attrs); err != nil {
+		return nil, "", "attribute_count", err
 	}
 	code := tracepb.Status_STATUS_CODE_OK
 	if record.Failed {
@@ -149,6 +153,13 @@ func mapRecord(record usage.Record, installation uuid.UUID, secret []byte) (*tra
 	span := &tracepb.Span{TraceId: traceID, SpanId: spanID, Name: record.Model, Kind: tracepb.Span_SPAN_KIND_SERVER, StartTimeUnixNano: uint64(start), EndTimeUnixNano: uint64(end), Status: &tracepb.Status{Code: code}, Attributes: attrs}
 	result := &tracepb.ResourceSpans{Resource: &resourcepb.Resource{Attributes: []*commonpb.KeyValue{stringAttr("cliproxyapi.installation.id", installation.String()), stringAttr("service.name", "CLIProxyAPI")}}, ScopeSpans: []*tracepb.ScopeSpans{{Scope: &commonpb.InstrumentationScope{Name: "cliproxyapi.execution", Version: "2"}, Spans: []*tracepb.Span{span}}}}
 	return result, id, "", nil
+}
+
+func checkAttributeCount(attrs []*commonpb.KeyValue) error {
+	if len(attrs) > maxSpanAttributes {
+		return errors.New("too many span attributes")
+	}
+	return nil
 }
 
 func validNativeID(value string) bool {

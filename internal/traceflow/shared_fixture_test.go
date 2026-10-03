@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/usageidentity"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 )
@@ -104,6 +105,11 @@ func TestSharedExecutionFixtureSemantics(t *testing.T) {
 				if present {
 					record.Detail.TokenBreakdown = usage.TokenBreakdown{SchemaVersion: int(sharedInt(t, attrs, "gen_ai.usage.schema_version")), Quality: usage.TokenAccountingQuality(attrs["gen_ai.usage.quality"].StringValue), TotalTokens: sharedInt(t, attrs, "gen_ai.usage.total_tokens"), Input: usage.TokenInputBreakdown{TotalTokens: sharedInt(t, attrs, "gen_ai.usage.input_tokens"), UncachedTokens: sharedInt(t, attrs, "gen_ai.usage.input_tokens_uncached"), CacheReadTokens: sharedInt(t, attrs, "gen_ai.usage.cache_read_input_tokens"), CacheWriteTokens: sharedInt(t, attrs, "gen_ai.usage.cache_creation_input_tokens")}, Output: usage.TokenOutputBreakdown{TotalTokens: sharedInt(t, attrs, "gen_ai.usage.output_tokens"), NonReasoningTokens: sharedInt(t, attrs, "gen_ai.usage.output_tokens_non_reasoning"), ReasoningTokens: sharedInt(t, attrs, "gen_ai.usage.reasoning_tokens")}, UnclassifiedTokens: sharedInt(t, attrs, "gen_ai.usage.unclassified_tokens")}
 				}
+				wantPlan, hasPlan := attrs["cliproxyapi.account.plan"]
+				if hasPlan {
+					// The fixture's reference is synthetic, so rebuild only the coverage and plan the exporter derives.
+					record.AccountIdentity = usageidentity.NewSelected("CodexExecutor", "codex", "fixture-credential", "", "", "", "").WithSubscriptionPlan(strings.TrimPrefix(wantPlan.StringValue, "chatgpt_"))
+				}
 				item, _, reason, err := mapRecord(record, installation, []byte("synthetic-fixture-secret"))
 				if err != nil {
 					t.Fatalf("fixture span %d: %v %s", count, err, reason)
@@ -125,6 +131,14 @@ func TestSharedExecutionFixtureSemantics(t *testing.T) {
 						value.BoolValue = &b
 					}
 					actual[attr.Key] = value
+				}
+				if hasPlan {
+					if got := actual["cliproxyapi.account.plan"]; got.StringValue != wantPlan.StringValue || actual["cliproxyapi.account.coverage"].StringValue != attrs["cliproxyapi.account.coverage"].StringValue {
+						t.Errorf("fixture span %d plan = %q coverage = %q", count, got.StringValue, actual["cliproxyapi.account.coverage"].StringValue)
+					}
+					if len(mapped.Attributes) != len(source.Attributes) {
+						t.Errorf("fixture span %d mapped %d attributes, fixture has %d", count, len(mapped.Attributes), len(source.Attributes))
+					}
 				}
 				for key, want := range attrs {
 					if key == "gen_ai.system" || strings.HasPrefix(key, "cliproxyapi.account.") {
