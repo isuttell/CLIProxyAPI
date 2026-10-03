@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -553,5 +554,78 @@ func TestAcknowledgementPreservesUnrelatedHealthFailure(t *testing.T) {
 	status, err := exporter.Status()
 	if err != nil || status.Healthy || status.LastError != "metrics_write_error" {
 		t.Fatalf("ack hid unrelated failure: %+v %v", status, err)
+	}
+}
+
+func TestExporterPersistsAndDeliversNativeMetadata(t *testing.T) {
+	box := testOutbox(t)
+	exporter := &Exporter{
+		box: box, binding: "binding", ingress: make(chan sourceRecord, 1), writerDone: make(chan struct{}),
+		captureReasons: map[string]uint64{}, omissionCounts: map[string]uint64{},
+	}
+	exporter.enabled.Store(true)
+	go exporter.writer()
+	record := sampleRecord()
+	record.NativeSource = "codex"
+	record.NativeSessionID = "child-thread"
+	record.NativeParentSessionID = "root-thread"
+	record.NativeOriginSessionID = "origin-session"
+	record.InboundTraceID = "0123456789abcdef0123456789abcdef"
+	record.InboundSpanID = "0123456789abcdef"
+	exporter.HandleUsage(context.Background(), record)
+	close(exporter.ingress)
+	<-exporter.writerDone
+	batch, err := box.batch("binding")
+	if err != nil || len(batch) != 1 {
+		t.Fatalf("persisted batch: %d %v", len(batch), err)
+	}
+	var persisted tracepb.ResourceSpans
+	if err := proto.Unmarshal(batch[0].Payload, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if got := persisted.ScopeSpans[0].Spans[0]; got.ParentSpanId != nil || len(got.Links) != 0 {
+		t.Fatal("inbound context changed the execution span structure")
+	}
+	delivered := make(chan *v1.ExportTraceServiceRequest, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, errRead := io.ReadAll(r.Body)
+		if errRead != nil {
+			t.Error(errRead)
+			return
+		}
+		var envelope v1.ExportTraceServiceRequest
+		if errDecode := proto.Unmarshal(raw, &envelope); errDecode != nil {
+			t.Error(errDecode)
+			return
+		}
+		delivered <- &envelope
+		w.Header().Set("X-Trace-Flow-Contract", contractMarker)
+		w.Header().Set("X-Trace-Flow-Recording", "true")
+		_, _ = w.Write([]byte(`{"partialSuccess":{}}`))
+	}))
+	defer server.Close()
+	if _, err := testExporter(box, server).deliver(context.Background(), batch); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case envelope := <-delivered:
+		if len(envelope.ResourceSpans) != 1 {
+			t.Fatalf("delivered %d resource spans", len(envelope.ResourceSpans))
+		}
+		attrs := map[string]string{}
+		for _, attr := range envelope.ResourceSpans[0].ScopeSpans[0].Spans[0].Attributes {
+			attrs[attr.Key] = attr.Value.GetStringValue()
+		}
+		for key, want := range map[string]string{
+			"cliproxyapi.client.source": "codex", "cliproxyapi.client.session.id": "child-thread",
+			"cliproxyapi.client.session.parent_id": "root-thread", "cliproxyapi.client.session.origin_id": "origin-session",
+			"cliproxyapi.inbound.trace_id": "0123456789abcdef0123456789abcdef", "cliproxyapi.inbound.span_id": "0123456789abcdef",
+		} {
+			if attrs[key] != want {
+				t.Fatalf("delivered %s = %q, want %q", key, attrs[key], want)
+			}
+		}
+	default:
+		t.Fatal("delivery did not reach the test collector")
 	}
 }

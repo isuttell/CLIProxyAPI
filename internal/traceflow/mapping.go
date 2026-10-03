@@ -22,6 +22,8 @@ var (
 	token32Pattern  = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,32}$`)
 	token64Pattern  = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,64}$`)
 	token128Pattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
+	traceIDPattern  = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	spanIDPattern   = regexp.MustCompile(`^[0-9a-f]{16}$`)
 	emailPattern    = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+`)
 	secretPattern   = regexp.MustCompile(`(?:sk-(?:proj-)?[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{20,}|eyJ[A-Za-z0-9_-]{30,})`)
 )
@@ -100,6 +102,23 @@ func mapRecord(record usage.Record, installation uuid.UUID, secret []byte) (*tra
 	if token128Pattern.MatchString(record.ParentSessionID) && !sensitive(record.ParentSessionID) {
 		attrs = append(attrs, stringAttr("cliproxyapi.session.parent_id", record.ParentSessionID))
 	}
+	if validNativeSession(record) {
+		attrs = append(attrs, stringAttr("cliproxyapi.client.source", record.NativeSource), stringAttr("cliproxyapi.client.session.id", record.NativeSessionID))
+		if record.NativeSource == "claude" && validNativeID(record.NativeAgentID) && !strings.EqualFold(record.NativeAgentID, "main") {
+			attrs = append(attrs, stringAttr("cliproxyapi.client.agent.id", record.NativeAgentID))
+		}
+		if record.NativeSource == "codex" {
+			if validNativeID(record.NativeParentSessionID) && record.NativeParentSessionID != record.NativeSessionID {
+				attrs = append(attrs, stringAttr("cliproxyapi.client.session.parent_id", record.NativeParentSessionID))
+			}
+			if validNativeID(record.NativeOriginSessionID) && record.NativeOriginSessionID != record.NativeSessionID {
+				attrs = append(attrs, stringAttr("cliproxyapi.client.session.origin_id", record.NativeOriginSessionID))
+			}
+		}
+	}
+	if validInboundTrace(record) {
+		attrs = append(attrs, stringAttr("cliproxyapi.inbound.trace_id", record.InboundTraceID), stringAttr("cliproxyapi.inbound.span_id", record.InboundSpanID))
+	}
 	if record.TTFTPresent && record.TTFT >= 0 && record.TTFT <= record.Latency {
 		attrs = append(attrs, intAttr("gen_ai.server.time_to_first_token", int64(record.TTFT/time.Millisecond)))
 	}
@@ -132,12 +151,51 @@ func mapRecord(record usage.Record, installation uuid.UUID, secret []byte) (*tra
 	return result, id, "", nil
 }
 
+func validNativeID(value string) bool {
+	return token128Pattern.MatchString(value) && !sensitive(value)
+}
+
+func validNativeSession(record usage.Record) bool {
+	return !nativeSessionAmbiguous(record) && (record.NativeSource == "claude" || record.NativeSource == "codex") && validNativeID(record.NativeSessionID)
+}
+
+func nativeSessionAmbiguous(record usage.Record) bool {
+	return record.NativeSessionIDAmbiguous || record.NativeSource == "codex" && record.NativeSessionID != "" && record.NativeSessionID == record.NativeParentSessionID
+}
+
+func validInboundTrace(record usage.Record) bool {
+	return traceIDPattern.MatchString(record.InboundTraceID) && spanIDPattern.MatchString(record.InboundSpanID) &&
+		record.InboundTraceID != strings.Repeat("0", 32) && record.InboundSpanID != strings.Repeat("0", 16)
+}
+
 func sensitive(value string) bool {
 	return emailPattern.MatchString(value) || secretPattern.MatchString(value)
 }
 
 func omissionReasons(record usage.Record) []string {
 	var reasons []string
+	if nativeSessionAmbiguous(record) {
+		reasons = append(reasons, "client_session_ambiguous")
+	} else if record.NativeSessionIDInvalid || record.NativeSessionID != "" && !validNativeID(record.NativeSessionID) {
+		reasons = append(reasons, "client_session_id_invalid")
+	}
+	if record.NativeSource != "" && record.NativeSource != "claude" && record.NativeSource != "codex" || record.NativeSource == "" && record.NativeSessionID != "" || record.NativeSource != "" && record.NativeSessionID == "" && !nativeSessionAmbiguous(record) {
+		reasons = append(reasons, "client_source_invalid")
+	}
+	if record.NativeAgentIDInvalid || record.NativeAgentID != "" && (!validNativeID(record.NativeAgentID) || strings.EqualFold(record.NativeAgentID, "main") || record.NativeSource != "claude" || !validNativeSession(record)) {
+		reasons = append(reasons, "client_agent_id_invalid")
+	}
+	if record.NativeParentSessionIDInvalid || record.NativeParentSessionID != "" && (!validNativeID(record.NativeParentSessionID) || record.NativeSource != "codex" || !validNativeSession(record) && !nativeSessionAmbiguous(record)) {
+		reasons = append(reasons, "client_parent_session_id_invalid")
+	}
+	if record.NativeOriginSessionIDInvalid || record.NativeOriginSessionID != "" && (!validNativeID(record.NativeOriginSessionID) || record.NativeSource != "codex" || !validNativeSession(record)) {
+		reasons = append(reasons, "client_origin_session_id_invalid")
+	}
+	if record.InboundTraceparentInvalid || record.InboundTraceID != "" || record.InboundSpanID != "" {
+		if !validInboundTrace(record) {
+			reasons = append(reasons, "inbound_traceparent_invalid")
+		}
+	}
 	if record.TraceID != "" && (!token64Pattern.MatchString(record.TraceID) || sensitive(record.TraceID)) {
 		reasons = append(reasons, "request_id_invalid")
 	}

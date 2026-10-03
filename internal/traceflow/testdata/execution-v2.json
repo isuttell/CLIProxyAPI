@@ -646,6 +646,211 @@
                   }
                 }
               ]
+            },
+            {
+              "traceId": "aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaa6",
+              "spanId": "8aaaaaaaaaaaaaa6",
+              "name": "gpt-5",
+              "kind": 2,
+              "startTimeUnixNano": "1760000008000000000",
+              "endTimeUnixNano": "1760000008500000000",
+              "status": {
+                "code": 2
+              },
+              "attributes": [
+                {
+                  "key": "cliproxyapi.execution.id",
+                  "value": {
+                    "stringValue": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6"
+                  }
+                },
+                {
+                  "key": "gen_ai.system",
+                  "value": {
+                    "stringValue": "openai"
+                  }
+                },
+                {
+                  "key": "gen_ai.request.model",
+                  "value": {
+                    "stringValue": "gpt-5"
+                  }
+                },
+                {
+                  "key": "cliproxyapi.request.id",
+                  "value": {
+                    "stringValue": "deadbeef"
+                  }
+                },
+                {
+                  "key": "gen_ai.streaming",
+                  "value": {
+                    "boolValue": true
+                  }
+                },
+                {
+                  "key": "gen_ai.server.time_to_first_token",
+                  "value": {
+                    "intValue": "90"
+                  }
+                },
+                {
+                  "key": "http.response.status_code",
+                  "value": {
+                    "intValue": "429"
+                  }
+                },
+                {
+                  "key": "cliproxyapi.account.coverage",
+                  "value": {
+                    "stringValue": "credential"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.schema_version",
+                  "value": {
+                    "intValue": "2"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.quality",
+                  "value": {
+                    "stringValue": "complete"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.total_tokens",
+                  "value": {
+                    "intValue": "7"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.input_tokens",
+                  "value": {
+                    "intValue": "5"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.input_tokens_uncached",
+                  "value": {
+                    "intValue": "4"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.cache_read_input_tokens",
+                  "value": {
+                    "intValue": "1"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.cache_creation_input_tokens",
+                  "value": {
+                    "intValue": "0"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.output_tokens",
+                  "value": {
+                    "intValue": "2"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.output_tokens_non_reasoning",
+                  "value": {
+                    "intValue": "2"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.reasoning_tokens",
+                  "value": {
+                    "intValue": "0"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.unclassified_tokens",
+                  "value": {
+                    "intValue": "0"
+                  }
+                },
+                {
+                  "key": "cliproxyapi.request.model_alias",
+                  "value": {
+                    "stringValue": "gpt-5-fast"
+                  }
+                },
+                {
+                  "key": "gen_ai.response.model",
+                  "value": {
+                    "stringValue": "gpt-5-2026"
+                  }
+                },
+                {
+                  "key": "cliproxyapi.request.service_tier",
+                  "value": {
+                    "stringValue": "auto"
+                  }
+                },
+                {
+                  "key": "cliproxyapi.response.service_tier",
+                  "value": {
+                    "stringValue": "default"
+                  }
+                },
+                {
+                  "key": "cliproxyapi.session.id",
+                  "value": {
+                    "stringValue": "failure-session"
+                  }
+                },
+                {
+                  "key": "cliproxyapi.session.parent_id",
+                  "value": {
+                    "stringValue": "parent-session"
+                  }
+                },
+                {
+                  "key": "cliproxyapi.account.ref",
+                  "value": {
+                    "stringValue": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                  }
+                },
+                {
+                  "key": "cliproxyapi.client.source",
+                  "value": {
+                    "stringValue": "codex"
+                  }
+                },
+                {
+                  "key": "cliproxyapi.client.session.id",
+                  "value": {
+                    "stringValue": "child-thread-6"
+                  }
+                },
+                {
+                  "key": "cliproxyapi.client.session.parent_id",
+                  "value": {
+                    "stringValue": "root-thread-6"
+                  }
+                },
+                {
+                  "key": "cliproxyapi.client.session.origin_id",
+                  "value": {
+                    "stringValue": "origin-session-6"
+                  }
+                },
+                {
+                  "key": "cliproxyapi.inbound.trace_id",
+                  "value": {
+                    "stringValue": "0123456789abcdef0123456789abcdef"
+                  }
+                },
+                {
+                  "key": "cliproxyapi.inbound.span_id",
+                  "value": {
+                    "stringValue": "0123456789abcdef"
+                  }
+                }
+              ]
             }
           ]
         }

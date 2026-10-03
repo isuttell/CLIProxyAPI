@@ -382,3 +382,17 @@ func TestApplyRequestAfterAuthInterceptor_OverridesPath_Issue6196(t *testing.T) 
 		t.Fatalf("final request path = %v, want /v1/images/generations", gotPath)
 	}
 }
+
+func TestSyncMetadataSessionPreservesNativeRequestIdentity(t *testing.T) {
+	original := internallogging.ClientRequestMetadata{
+		SessionID: "codex:child-thread", NativeCaptured: true,
+		NativeSource: "codex", NativeSessionID: "child-thread", NativeParentSessionID: "root-thread",
+		NativeOriginSessionID: "origin-session", InboundTraceID: "0123456789abcdef0123456789abcdef", InboundSpanID: "0123456789abcdef",
+	}
+	ctx := internallogging.WithClientRequestMetadata(context.Background(), original)
+	ctx = syncMetadataSessionToContext(ctx, map[string]any{cliproxyexecutor.CanonicalSessionIDMetadataKey: "lcp:rewritten"})
+	got := internallogging.GetClientRequestMetadata(ctx)
+	if got.SessionID != "lcp:rewritten" || got.NativeSource != original.NativeSource || got.NativeSessionID != original.NativeSessionID || got.NativeParentSessionID != original.NativeParentSessionID || got.NativeOriginSessionID != original.NativeOriginSessionID || got.InboundTraceID != original.InboundTraceID || got.InboundSpanID != original.InboundSpanID {
+		t.Fatalf("routing rewrite lost native identity: %+v", got)
+	}
+}

@@ -274,6 +274,25 @@ func extractSessionIDsFromRequest(request *http.Request) (string, string) {
 // from headers, payload, and metadata and records them in ClientRequestMetadata.
 func EnrichContextWithSessionHierarchy(ctx context.Context, headers http.Header, payload []byte, metadata map[string]any) context.Context {
 	meta := logging.GetClientRequestMetadata(ctx)
+	if !meta.NativeCaptured {
+		native := coresession.ExtractNativeIdentity(headers, payload)
+		meta.NativeCaptured = true
+		meta.NativeSource = native.Source
+		meta.NativeSessionID = native.SessionID
+		meta.NativeAgentID = native.AgentID
+		meta.NativeParentSessionID = native.ParentSessionID
+		meta.NativeOriginSessionID = native.OriginSessionID
+		meta.NativeSessionIDInvalid = native.SessionIDInvalid
+		meta.NativeAgentIDInvalid = native.AgentIDInvalid
+		meta.NativeParentSessionIDInvalid = native.ParentSessionIDInvalid
+		meta.NativeOriginSessionIDInvalid = native.OriginSessionIDInvalid
+		meta.NativeSessionIDAmbiguous = native.SessionIDAmbiguous
+		if !coreexecutor.DownstreamWebsocket(ctx) && !strings.EqualFold(headers.Get("Upgrade"), "websocket") {
+			meta.InboundTraceID, meta.InboundSpanID, _ = logging.ParseTraceparent(headers)
+			meta.InboundTraceparentInvalid = hasTraceparent(headers) && meta.InboundTraceID == ""
+		}
+	}
+
 	if info, ok := coresession.ExtractSessionInfo(headers, payload, metadata); ok {
 		meta.SessionID = info.SessionID
 		meta.ParentSessionID = info.ParentSessionID
@@ -289,7 +308,16 @@ func EnrichContextWithSessionHierarchy(ctx context.Context, headers http.Header,
 		ctx = logging.WithClientRequestMetadata(ctx, meta)
 		return util.WithSessionID(ctx, "")
 	}
-	return ctx
+	return logging.WithClientRequestMetadata(ctx, meta)
+}
+
+func hasTraceparent(headers http.Header) bool {
+	for key := range headers {
+		if strings.EqualFold(key, "traceparent") {
+			return true
+		}
+	}
+	return false
 }
 
 func enrichContextWithSessionHierarchy(ctx context.Context, headers http.Header, payload []byte, metadata map[string]any) context.Context {
