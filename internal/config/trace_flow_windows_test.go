@@ -26,12 +26,12 @@ func TestTraceFlowStateOnSeparateVolume(t *testing.T) {
 		var err error
 		stateDir, err = os.MkdirTemp(root, "trace-flow-config-")
 		if err != nil {
-			t.Fatal(err)
+			continue
 		}
 		break
 	}
 	if stateDir == "" {
-		t.Skip("requires two mounted Windows volumes")
+		t.Skip("requires two mounted Windows volumes with writable test space")
 	}
 	t.Cleanup(func() {
 		if err := os.RemoveAll(stateDir); err != nil {

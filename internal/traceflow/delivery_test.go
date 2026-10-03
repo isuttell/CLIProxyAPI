@@ -83,8 +83,11 @@ func TestStrictAcknowledgement(t *testing.T) {
 					t.Error("wrong request")
 				}
 				var envelope v1.ExportTraceServiceRequest
-				raw := make([]byte, r.ContentLength)
-				_, _ = r.Body.Read(raw)
+				raw, errRead := io.ReadAll(r.Body)
+				if errRead != nil {
+					t.Errorf("read request: %v", errRead)
+					return
+				}
 				if err := proto.Unmarshal(raw, &envelope); err != nil || len(envelope.ResourceSpans) != 1 {
 					t.Errorf("invalid protobuf: %v", err)
 				}
