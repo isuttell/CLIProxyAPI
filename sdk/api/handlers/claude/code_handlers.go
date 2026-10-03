@@ -155,7 +155,7 @@ func rewriteClaudeDDModelInBody(rawJSON []byte) []byte {
 // Parameters:
 //   - c: The Gin context for the request.
 func (h *ClaudeCodeAPIHandler) ClaudeModels(c *gin.Context) {
-	disableCloaking := h.Cfg != nil && h.Cfg.ClaudeCode.DisableCloakingModelList
+	disableCloaking := h.CurrentConfig() != nil && h.CurrentConfig().ClaudeCode.DisableCloakingModelList
 	h.WriteModelListResponse(c, h.HandlerType(), claudemodels.BuildResponse(h.Models(), disableCloaking))
 }
 
@@ -388,7 +388,7 @@ func (h *ClaudeCodeAPIHandler) WriteErrorResponse(c *gin.Context, msg *interface
 			c.Writer.Header().Add("Retry-After", value)
 		}
 	}
-	if msg != nil && msg.Addon != nil && handlers.PassthroughHeadersEnabled(h.Cfg) {
+	if msg != nil && msg.Addon != nil && handlers.PassthroughHeadersEnabled(h.CurrentConfig()) {
 		for key, values := range msg.Addon {
 			if len(values) == 0 || handlers.IsCPAReservedResponseHeader(key) {
 				continue

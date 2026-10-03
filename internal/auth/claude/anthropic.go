@@ -18,7 +18,8 @@ type ClaudeTokenData struct {
 	// Email is the Anthropic account email.
 	Email string `json:"email"`
 	// AccountUUID identifies the Anthropic account returned by OAuth.
-	AccountUUID string `json:"account_uuid"`
+	AccountUUID        string `json:"account_uuid"`
+	IdentityProvenance string `json:"identity_provenance,omitempty"`
 	// OrganizationUUID identifies the Anthropic organization returned by OAuth.
 	OrganizationUUID string `json:"organization_uuid"`
 	// OrganizationName is the display name returned by OAuth.

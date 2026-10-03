@@ -395,7 +395,9 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 					return false
 				}
 				reporter.ObserveResponseModel(event.Payload)
-				streamUsage.Observe(helps.ParseGeminiUsage(event.Payload), true)
+				if detail, ok := helps.ParseGeminiStreamUsage(event.Payload); ok {
+					streamUsage.Observe(detail, true)
+				}
 				return false
 			case wsrelay.MessageTypeError:
 				helps.RecordAPIResponseError(ctx, e.cfg, event.Err)

@@ -99,7 +99,7 @@ func main() {
 	// For legacy --discover-json flag or JSON requests, keep stdout clean
 	isJSONDiscover := argvEnablesBoolFlag(os.Args[1:], "discover-json")
 	isDiscoverMode := isJSONDiscover || argvEnablesBoolFlag(os.Args[1:], "discover")
-	if !isJSONDiscover {
+	if !isJSONDiscover && !argvEnablesBoolFlag(os.Args[1:], "trace-flow-status") {
 		fmt.Printf("CLIProxyAPI Version: %s, Commit: %s, BuiltAt: %s\n", buildinfo.Version, buildinfo.Commit, buildinfo.BuildDate)
 	}
 
@@ -131,6 +131,7 @@ func main() {
 	var standalone bool
 	var managementBaseURL string
 	var localModel bool
+	var traceFlowOptions cmd.TraceFlowOptions
 
 	// Define command-line flags for different operation modes.
 	flag.BoolVar(&codexLogin, "codex-login", false, "Login to Codex using OAuth")
@@ -160,6 +161,14 @@ func main() {
 	flag.BoolVar(&standalone, "standalone", false, "In TUI mode, start an embedded local server")
 	flag.StringVar(&managementBaseURL, "management-base-url", "", "Base URL of remote management API for TUI client mode (e.g. https://proxy.example.com)")
 	flag.BoolVar(&localModel, "local-model", false, "Use embedded models.json and codex_client_models.json only, skip remote model catalog fetching")
+
+	flag.BoolVar(&traceFlowOptions.Status, "trace-flow-status", false, "Show local Trace Flow delivery status")
+	flag.BoolVar(&traceFlowOptions.Resume, "trace-flow-resume", false, "Resume the current Trace Flow destination on next start")
+	flag.StringVar(&traceFlowOptions.Requeue, "trace-flow-requeue", "", "Requeue an explicit execution, reason or binding selector")
+	flag.StringVar(&traceFlowOptions.Rebind, "trace-flow-rebind", "", "Rebind records from this old destination binding")
+	flag.StringVar(&traceFlowOptions.RebindTo, "trace-flow-rebind-to", "", "Attest same-Organization migration to this current binding")
+	flag.StringVar(&traceFlowOptions.Discard, "trace-flow-discard", "", "Discard records matching an explicit selector")
+	flag.BoolVar(&traceFlowOptions.ConfirmDiscard, "trace-flow-confirm-discard", false, "Confirm deletion of the selected Trace Flow records")
 
 	flag.CommandLine.Usage = func() {
 		out := flag.CommandLine.Output()
@@ -254,6 +263,27 @@ func main() {
 		if !errors.Is(errLoad, os.ErrNotExist) {
 			log.WithError(errLoad).Warn("failed to load .env file")
 		}
+	}
+
+	if traceFlowOptions.Requested() {
+		if vertexImport != "" || antigravityLogin || codexLogin || codexDeviceLogin || claudeLogin || kimiLogin || kimiAILogin || xaiLogin || devinLogin || metaLogin || tuiMode || standalone || homeJWT != "" {
+			log.Error("Trace Flow maintenance cannot be combined with server or login modes")
+			os.Exit(1)
+		}
+		maintenanceConfigPath := configPath
+		if maintenanceConfigPath == "" {
+			maintenanceConfigPath = filepath.Join(wd, "config.yaml")
+		}
+		maintenanceCfg, errConfig := config.LoadConfig(maintenanceConfigPath)
+		if errConfig != nil {
+			log.Error("failed to load Trace Flow maintenance configuration")
+			os.Exit(1)
+		}
+		if errMaintenance := cmd.DoTraceFlow(maintenanceCfg, maintenanceConfigPath, traceFlowOptions, os.Stdout); errMaintenance != nil {
+			log.WithError(errMaintenance).Error("Trace Flow maintenance failed")
+			os.Exit(1)
+		}
+		return
 	}
 
 	lookupEnv := func(keys ...string) (string, bool) {
@@ -825,7 +855,9 @@ func main() {
 			managementasset.StartAutoUpdater(context.Background(), configFilePath)
 			misc.StartAntigravityVersionUpdater(context.Background())
 			startModelCatalogUpdaters(localModel, cfg.Home.Enabled)
-			cmd.StartServiceWithPluginHost(cfg, configFilePath, password, pluginHost, serverOptions...)
+			if errStart := cmd.StartServiceWithPluginHost(cfg, configFilePath, password, pluginHost, serverOptions...); errStart != nil {
+				os.Exit(1)
+			}
 		}
 	}
 }

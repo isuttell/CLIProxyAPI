@@ -64,6 +64,10 @@ func (s *Service) Run(ctx context.Context) error {
 		}
 	}()
 
+	if errTraceFlow := s.startTraceFlow(); errTraceFlow != nil {
+		return errTraceFlow
+	}
+
 	if !homeEnabled {
 		if errEnsureAuthDir := s.ensureAuthDir(); errEnsureAuthDir != nil {
 			return errEnsureAuthDir
@@ -235,6 +239,8 @@ func (s *Service) Shutdown(ctx context.Context) error {
 			ctx = context.Background()
 		}
 
+		s.traceFlowRequests.stop()
+
 		s.homeLifecycleMu.Lock()
 		if supervisor := s.homeSupervisor; supervisor != nil {
 			s.homeConfigCommitMu.Lock()
@@ -351,7 +357,10 @@ func (s *Service) Shutdown(ctx context.Context) error {
 			}
 		}
 
-		usage.StopDefault()
+		if errDrain := s.drainTraceFlowUsage(ctx); errDrain != nil {
+			shutdownErr = errors.Join(shutdownErr, errDrain)
+		}
+
 	})
 	return shutdownErr
 }

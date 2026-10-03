@@ -57,3 +57,23 @@ func TestSaveTokenToFile_PreservesCustomMetadata(t *testing.T) {
 		t.Errorf("weight = %v, want 5", saved["weight"])
 	}
 }
+
+func TestSaveTokenToFileDoesNotAcceptHookIdentityProvenance(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "claude.json")
+	storage := &ClaudeTokenStorage{}
+	storage.SetMetadata(map[string]any{"identity_provenance": "anthropic_oauth"})
+	if err := storage.SaveTokenToFile(path); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved map[string]any
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := saved["identity_provenance"]; exists {
+		t.Fatal("hook metadata minted provider identity evidence")
+	}
+}
