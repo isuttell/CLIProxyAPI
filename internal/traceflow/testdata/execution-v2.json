@@ -815,6 +815,12 @@
                   }
                 },
                 {
+                  "key": "cliproxyapi.account.plan",
+                  "value": {
+                    "stringValue": "chatgpt_pro"
+                  }
+                },
+                {
                   "key": "cliproxyapi.client.source",
                   "value": {
                     "stringValue": "codex"

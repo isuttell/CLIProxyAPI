@@ -1643,7 +1643,7 @@ func rawJSONArray(items []string) []byte {
 }
 
 func isClaudeOAuthToken(apiKey string) bool {
-	return strings.Contains(apiKey, "sk-ant-oat")
+	return claudeauth.IsOAuthAccessToken(apiKey)
 }
 
 type claudeMCPAliasOptions struct {

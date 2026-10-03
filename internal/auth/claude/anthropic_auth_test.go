@@ -89,8 +89,8 @@ func TestExchangeCodeForTokensPersistsUpstreamAccountAndDevicePool(t *testing.T)
 					}`), nil
 				case ProfileURL:
 					return jsonResponse(req, `{
-						"account":{"uuid":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","email":"user@example.com"},
-						"organization":{"uuid":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","name":"Example Org"}
+						"account":{"uuid":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","email":"user@example.com","has_claude_pro":true},
+						"organization":{"uuid":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","name":"Example Org","organization_type":"claude_pro"}
 					}`), nil
 				case RolesURL:
 					return jsonResponse(req, `{"roles":[]}`), nil
@@ -121,6 +121,9 @@ func TestExchangeCodeForTokensPersistsUpstreamAccountAndDevicePool(t *testing.T)
 	}
 	if len(storage.DeviceIDs) != ClaudeDevicePoolSize {
 		t.Fatalf("storage device pool length = %d, want %d", len(storage.DeviceIDs), ClaudeDevicePoolSize)
+	}
+	if bundle.TokenData.PlanType != "pro" || storage.PlanType != "pro" {
+		t.Fatalf("login plan = %q / storage %q, want pro", bundle.TokenData.PlanType, storage.PlanType)
 	}
 }
 
@@ -438,8 +441,8 @@ func TestRefreshTokensUsesNative220ControlPlaneShape(t *testing.T) {
 					return &http.Response{
 						StatusCode: http.StatusOK,
 						Body: io.NopCloser(strings.NewReader(`{
-							"account":{"uuid":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","email":"shared@example.com"},
-							"organization":{"uuid":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","name":"Shared Org"}
+							"account":{"uuid":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","email":"shared@example.com","has_claude_max":true},
+							"organization":{"uuid":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","name":"Shared Org","organization_type":"claude_max","rate_limit_tier":"default_claude_max_5x"}
 						}`)),
 						Header:  make(http.Header),
 						Request: req,
@@ -461,6 +464,9 @@ func TestRefreshTokensUsesNative220ControlPlaneShape(t *testing.T) {
 	}
 	if tokenData.AccountUUID == "" || tokenData.Email == "" || tokenData.OrganizationUUID == "" {
 		t.Fatalf("profile identity was not populated: %#v", tokenData)
+	}
+	if !tokenData.ProfileRead || tokenData.PlanType != "max_5x" {
+		t.Fatalf("refresh plan = %q read=%v, want max_5x", tokenData.PlanType, tokenData.ProfileRead)
 	}
 }
 

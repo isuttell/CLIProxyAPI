@@ -78,3 +78,63 @@ func TestAccountSnapshotPreservesOpaqueIDsVerbatim(t *testing.T) {
 		t.Fatalf("invalid UTF-8 identity qualified: %v", invalid)
 	}
 }
+
+func testPlanToken(plan string) string {
+	payload, _ := json.Marshal(map[string]any{
+		"https://api.openai.com/auth": map[string]string{
+			"chatgpt_account_id": "workspace", "chatgpt_user_id": "member", "chatgpt_plan_type": plan,
+		},
+	})
+	return "header." + base64.RawURLEncoding.EncodeToString(payload) + ".signature"
+}
+
+func TestCodexSnapshotCapturesSubscriptionPlan(t *testing.T) {
+	auth := &cliproxyauth.Auth{ID: "credential", Metadata: map[string]any{"id_token": testPlanToken("plus"), "plan_type": "free"}}
+	snapshot := snapshotAccountIdentity("CodexExecutor", "codex", auth)
+	if !snapshot.IsSubscription() || snapshot.Plan() != "plus" {
+		t.Fatalf("subscription=%v plan=%q, want token plan plus", snapshot.IsSubscription(), snapshot.Plan())
+	}
+	auth.Metadata["id_token"] = testPlanToken("pro")
+	if snapshot.Plan() != "plus" {
+		t.Fatal("snapshot plan changed after credential refresh")
+	}
+	auth.Metadata["id_token"] = testPlanToken("")
+	if missing := snapshotAccountIdentity("CodexExecutor", "codex", auth); !missing.IsSubscription() || missing.Plan() != "" {
+		t.Fatalf("missing plan claim must stay unread, not default to free: %q", missing.Plan())
+	}
+	apiKey := &cliproxyauth.Auth{ID: "codex-api-key", Attributes: map[string]string{"api_key": "synthetic-key"}}
+	if snapshotAccountIdentity("CodexExecutor", "codex", apiKey).IsSubscription() {
+		t.Fatal("API key credential treated as a subscription")
+	}
+}
+
+func TestCodexOAuthWithoutReadableIDTokenIsSubscriptionWithUnknownPlan(t *testing.T) {
+	cases := map[string]map[string]any{
+		"absent":    {"access_token": "synthetic-access"},
+		"empty":     {"access_token": "synthetic-access", "id_token": ""},
+		"malformed": {"access_token": "synthetic-access", "id_token": "not-a-jwt"},
+	}
+	for name, metadata := range cases {
+		auth := &cliproxyauth.Auth{ID: "credential-" + name, Metadata: metadata}
+		snapshot := snapshotAccountIdentity("CodexExecutor", "codex", auth)
+		if !snapshot.IsSubscription() || snapshot.Plan() != "" {
+			t.Fatalf("%s id_token: subscription=%v plan=%q, want subscription with unread plan", name, snapshot.IsSubscription(), snapshot.Plan())
+		}
+	}
+}
+
+func TestClaudeSnapshotCapturesSubscriptionPlan(t *testing.T) {
+	oauth := &cliproxyauth.Auth{ID: "credential", Metadata: map[string]any{"access_token": "sk-ant-oat01-synthetic", "plan_type": "max_20x"}}
+	snapshot := snapshotAccountIdentity("ClaudeExecutor", "claude", oauth)
+	if !snapshot.IsSubscription() || snapshot.Plan() != "max_20x" {
+		t.Fatalf("subscription=%v plan=%q, want max_20x", snapshot.IsSubscription(), snapshot.Plan())
+	}
+	configured := &cliproxyauth.Auth{ID: "config", Attributes: map[string]string{"api_key": "sk-ant-oat01-synthetic"}}
+	if got := snapshotAccountIdentity("ClaudeExecutor", "claude", configured); !got.IsSubscription() || got.Plan() != "" {
+		t.Fatalf("configured OAuth token: subscription=%v plan=%q, want unread subscription", got.IsSubscription(), got.Plan())
+	}
+	apiKey := &cliproxyauth.Auth{ID: "api", Attributes: map[string]string{"api_key": "sk-ant-api03-synthetic"}, Metadata: map[string]any{"plan_type": "pro"}}
+	if snapshotAccountIdentity("ClaudeExecutor", "claude", apiKey).IsSubscription() {
+		t.Fatal("API key credential treated as a subscription")
+	}
+}
