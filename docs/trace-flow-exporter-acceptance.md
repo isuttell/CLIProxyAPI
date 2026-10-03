@@ -31,7 +31,7 @@ Tests cover official account identity vectors and all five shared execution-fixt
 - Darwin server build, Windows amd64 server build, Windows test compilation, and targeted `go vet` passed.
 - Aggregate race tests passed for the exporter, account identity, config, CLI, Claude auth, capture helpers, HTTP handlers, service, auth manager, and usage dispatcher. The full executor race suite also passed.
 - Full `go test ./...` passed every package except the live `TestAdvertiserAndBrowser_Integration` in `internal/discovery`. It fails because this machine cannot join the available IPv6 multicast interfaces. The exact test reproduces on the untouched base commit. No test was bypassed.
-- Windows ACL tests are configured in the PR workflow; runtime Windows verification depends on that job.
+- The PR Windows ACL and durable-delivery test job passed on Windows. Cross-volume configuration coverage is also included in that workflow.
 - Opus cross-review found no high or medium residuals. Held-backlog polling still scans delivery metadata and may consume CPU for large retained backlogs; representative concurrency and sustained-outage resource measurements remain outstanding.
 
 ## Done

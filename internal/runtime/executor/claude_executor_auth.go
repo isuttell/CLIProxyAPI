@@ -166,6 +166,11 @@ func (e *ClaudeExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (
 	if err != nil {
 		return nil, err
 	}
+	if storage, ok := auth.Storage.(*claudeauth.ClaudeTokenStorage); ok && storage != nil {
+		updated := *storage
+		svc.UpdateTokenStorage(&updated, td)
+		auth.Storage = &updated
+	}
 	claudeauth.EnsureMetadataMap(&auth.Metadata)
 	claudeauth.StoreMetadataValue(&auth.Metadata, "access_token", td.AccessToken)
 	claudeauth.StoreMetadataString(&auth.Metadata, "refresh_token", td.RefreshToken)

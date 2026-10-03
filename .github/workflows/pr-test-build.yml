@@ -36,3 +36,5 @@ jobs:
           cache: true
       - name: Test private state and durable delivery
         run: go test ./internal/traceflow
+      - name: Test local exporter configuration paths
+        run: go test ./internal/config -run TestTraceFlow

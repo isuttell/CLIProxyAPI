@@ -123,7 +123,7 @@ func TestStrictAcknowledgement(t *testing.T) {
 		})
 	}
 }
-func TestRetryRetainsIdenticalSource(t *testing.T) {
+func TestRetryRetainsIdenticalSourceAndRecoversHealth(t *testing.T) {
 	box := testOutbox(t)
 	batch := commitSource(t, box, testSource(t, box))
 	var seen atomic.Int32
@@ -139,9 +139,14 @@ func TestRetryRetainsIdenticalSource(t *testing.T) {
 	}))
 	defer server.Close()
 	e := testExporter(box, server)
+	e.enabled.Store(true)
 	retry, err := e.deliver(context.Background(), batch)
 	if err != nil || retry.Seconds() != 2 {
 		t.Fatalf("retry: %v %v", retry, err)
+	}
+	unhealthy, err := e.Status()
+	if err != nil || unhealthy.Healthy || unhealthy.LastError == "" {
+		t.Fatalf("retry health: %+v %v", unhealthy, err)
 	}
 	again, err := box.batch("binding")
 	if err != nil || len(again) != 1 || again[0].Digest != batch[0].Digest {
@@ -151,7 +156,10 @@ func TestRetryRetainsIdenticalSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	status, _ := box.status("binding")
+	status, err := e.Status()
+	if err != nil || !status.Healthy || status.LastError != "" {
+		t.Fatalf("recovered health: %+v %v", status, err)
+	}
 	if status.Tombstones != 1 || status.States["pending"].Count != 0 {
 		t.Fatalf("not acknowledged: %+v", status)
 	}
@@ -521,5 +529,26 @@ func TestConcurrentStatusAndClose(t *testing.T) {
 	<-done
 	if _, err := exporter.Status(); err == nil {
 		t.Fatal("status against closed outbox did not return error")
+	}
+}
+
+func TestAcknowledgementPreservesUnrelatedHealthFailure(t *testing.T) {
+	box := testOutbox(t)
+	batch := commitSource(t, box, testSource(t, box))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Trace-Flow-Contract", contractMarker)
+		w.Header().Set("X-Trace-Flow-Recording", "true")
+		_, _ = w.Write([]byte(`{"partialSuccess":{}}`))
+	}))
+	defer server.Close()
+	exporter := testExporter(box, server)
+	exporter.enabled.Store(true)
+	exporter.recordError("metrics_write_error")
+	if _, err := exporter.deliver(context.Background(), batch); err != nil {
+		t.Fatal(err)
+	}
+	status, err := exporter.Status()
+	if err != nil || status.Healthy || status.LastError != "metrics_write_error" {
+		t.Fatalf("ack hid unrelated failure: %+v %v", status, err)
 	}
 }

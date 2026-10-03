@@ -77,3 +77,48 @@ func TestSaveTokenToFileDoesNotAcceptHookIdentityProvenance(t *testing.T) {
 		t.Fatal("hook metadata minted provider identity evidence")
 	}
 }
+
+func TestSaveTokenToFilePreservesVerifiedIdentityAgainstHooks(t *testing.T) {
+	storage := &ClaudeTokenStorage{AccountUUID: "oauth-account", OrganizationUUID: "oauth-org", IdentityProvenance: "anthropic_oauth"}
+	storage.SetMetadata(map[string]any{"account_uuid": "hook-account", "organization_uuid": "hook-org"})
+	path := filepath.Join(t.TempDir(), "claude.json")
+	if err := storage.SaveTokenToFile(path); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved ClaudeTokenStorage
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.AccountUUID != storage.AccountUUID || saved.OrganizationUUID != storage.OrganizationUUID || saved.IdentityProvenance != storage.IdentityProvenance {
+		t.Fatal("hook metadata changed verified OAuth identity")
+	}
+}
+
+func TestVerifiedRefreshIdentityPersists(t *testing.T) {
+	storage := &ClaudeTokenStorage{AccountUUID: "old-account", OrganizationUUID: "old-org", IdentityProvenance: "anthropic_oauth"}
+	updated := *storage
+	(&ClaudeAuth{}).UpdateTokenStorage(&updated, &ClaudeTokenData{AccountUUID: "new-account", OrganizationUUID: "new-org", IdentityProvenance: "anthropic_oauth"})
+	updated.SetMetadata(map[string]any{"account_uuid": "new-account", "organization_uuid": "new-org", "identity_provenance": "anthropic_oauth"})
+	path := filepath.Join(t.TempDir(), "refreshed.json")
+	if err := updated.SaveTokenToFile(path); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved ClaudeTokenStorage
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.AccountUUID != "new-account" || saved.OrganizationUUID != "new-org" || saved.IdentityProvenance != "anthropic_oauth" {
+		t.Fatal("verified refresh reverted on disk")
+	}
+	if storage.AccountUUID != "old-account" {
+		t.Fatal("mutated shared login storage")
+	}
+}

@@ -61,6 +61,8 @@ Requeue and discard selectors are `execution:UUID`, `binding:ID`, or `reason:COD
 
 Status emits sanitized JSON with pending/quarantined counts and bytes, binding IDs, pause and quarantine reasons, oldest pending timestamp, last commit/acknowledgement, retry time, capture rejection reasons, and loss counters. Runtime health uses structured logs. No management API feature is added.
 
+The health flag includes cumulative loss diagnostics: counted capture loss, rejection, conflicts, or disk errors keep it false across restarts. Inspect counters, pauses, retry state, and last acknowledgement to distinguish past loss from a current delivery problem. A recovered network retry clears its current error after a durable acknowledgement.
+
 Held backlogs still require a metadata scan each upload poll. Large backlogs can increase CPU usage until explicitly rebound or discarded.
 
 Non-HTTP SDK or Home executions started after shutdown seals the dispatcher cannot be exported; a dropped late record emits a usage warning. Finish these executions before shutting down the service.

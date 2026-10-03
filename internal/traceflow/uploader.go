@@ -145,7 +145,16 @@ func (e *Exporter) deliver(ctx context.Context, batch []sourceRecord) (retry tim
 		result := e.upload(ctx, part)
 		switch result.kind {
 		case "ack":
-			return 0, e.box.acknowledge(part)
+			if err := e.box.acknowledge(part); err != nil {
+				return 0, err
+			}
+			if previous := e.lastError.Load(); previous != nil {
+				switch previous.(string) {
+				case "transport_error", "response_read_error", "upstream_unavailable":
+					e.lastError.CompareAndSwap(previous, "")
+				}
+			}
+			return 0, nil
 		case "retry":
 			e.recordError(result.reason)
 			if result.retryAfter <= 0 {

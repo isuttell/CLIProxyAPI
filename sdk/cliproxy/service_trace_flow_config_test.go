@@ -120,7 +120,7 @@ func TestHomeOverlayPreservesLocalTraceFlow(t *testing.T) {
 	base := &config.Config{TraceFlow: local}
 	base.Home.Enabled = true
 	service := &Service{cfg: base, traceFlow: exporter, traceFlowConfig: local}
-	remote := &config.Config{}
+	remote := &config.Config{TraceFlow: config.TraceFlowConfig{Enabled: true, Endpoint: "https://remote.example/v1/traces", OutboxPath: "remote/outbox.db", APIKeyEnv: "REMOTE_TRACE_FLOW_KEY"}}
 	remote.Routing.Strategy = "fill-first"
 	client, _ := newHomePluginTaskTestClient(t, nil, 0)
 	work, errStage := service.stageHomeOverlayWithClient(context.Background(), remote, client)

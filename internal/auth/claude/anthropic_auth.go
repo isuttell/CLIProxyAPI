@@ -677,6 +677,8 @@ func (o *ClaudeAuth) RefreshTokensWithRetry(ctx context.Context, refreshToken st
 //   - storage: The existing token storage to update
 //   - tokenData: The new token data to apply
 func (o *ClaudeAuth) UpdateTokenStorage(storage *ClaudeTokenStorage, tokenData *ClaudeTokenData) {
+	identityChanged := tokenData.AccountUUID != "" && tokenData.AccountUUID != storage.AccountUUID ||
+		tokenData.OrganizationUUID != "" && tokenData.OrganizationUUID != storage.OrganizationUUID
 	storage.AccessToken = tokenData.AccessToken
 	storage.RefreshToken = tokenData.RefreshToken
 	storage.LastRefresh = time.Now().Format(time.RFC3339)
@@ -694,6 +696,8 @@ func (o *ClaudeAuth) UpdateTokenStorage(storage *ClaudeTokenStorage, tokenData *
 	}
 	if tokenData.IdentityProvenance == "anthropic_oauth" {
 		storage.IdentityProvenance = tokenData.IdentityProvenance
+	} else if identityChanged {
+		storage.IdentityProvenance = ""
 	}
 	storage.Expire = tokenData.Expire
 }

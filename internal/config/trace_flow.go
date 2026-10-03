@@ -35,12 +35,14 @@ func (c TraceFlowConfig) ResolvePaths(configPath, authDir string) (TraceFlowConf
 		if errAuth != nil {
 			return c, errAuth
 		}
-		rel, errRel := filepath.Rel(auth, outbox)
-		if errRel != nil {
-			return c, fmt.Errorf("trace flow: compare outbox and credential storage: %w", errRel)
-		}
-		if rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
-			return c, fmt.Errorf("trace flow: outbox-path must be outside auth-dir")
+		if strings.EqualFold(filepath.VolumeName(auth), filepath.VolumeName(outbox)) {
+			rel, errRel := filepath.Rel(auth, outbox)
+			if errRel != nil {
+				return c, fmt.Errorf("trace flow: compare outbox and credential storage: %w", errRel)
+			}
+			if rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
+				return c, fmt.Errorf("trace flow: outbox-path must be outside auth-dir")
+			}
 		}
 	}
 	c.OutboxPath = outbox
