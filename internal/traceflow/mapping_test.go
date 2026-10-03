@@ -3,9 +3,11 @@ package traceflow
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -159,5 +161,105 @@ func TestOmissionDiagnosticsPersist(t *testing.T) {
 	}
 	if status.CaptureRejections != 0 {
 		t.Fatalf("optional invalid value rejected capture: %+v", status)
+	}
+}
+
+func TestNativeMetadataAttributeBoundAndExecutionIdentity(t *testing.T) {
+	base := sampleRecord()
+	base.TraceID = "abcd1234"
+	base.Alias = "gpt-5-fast"
+	base.ResponseModel = "gpt-5-2026"
+	base.ServiceTier = "auto"
+	base.ResponseServiceTier = "default"
+	base.SessionID = "canonical-child"
+	base.ParentSessionID = "canonical-parent"
+	base.Failed = true
+	base.Fail.StatusCode = 429
+	base.InboundTraceID = "0123456789abcdef0123456789abcdef"
+	base.InboundSpanID = "0123456789abcdef"
+	for _, test := range []struct {
+		name   string
+		modify func(*usage.Record)
+		count  int
+	}{
+		{"codex", func(r *usage.Record) {
+			r.NativeSource = "codex"
+			r.NativeSessionID = "child"
+			r.NativeParentSessionID = "root"
+			r.NativeOriginSessionID = "origin"
+		}, 32},
+		{"claude", func(r *usage.Record) {
+			r.NativeSource = "claude"
+			r.NativeSessionID = "session"
+			r.NativeAgentID = "agent"
+		}, 31},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			record := base
+			test.modify(&record)
+			item, _, reason, err := mapRecord(record, uuid.MustParse("11111111-1111-4111-8111-111111111111"), []byte("synthetic-secret"))
+			if err != nil {
+				t.Fatalf("map: %v %s", err, reason)
+			}
+			span := item.ScopeSpans[0].Spans[0]
+			if len(span.Attributes) != test.count || hex.EncodeToString(span.TraceId) != "aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaa1" || len(span.ParentSpanId) != 0 || len(span.Links) != 0 {
+				t.Fatalf("unexpected span shape: attributes=%d trace=%x parent=%x links=%d", len(span.Attributes), span.TraceId, span.ParentSpanId, len(span.Links))
+			}
+		})
+	}
+}
+
+func TestNativeMetadataDirectRecordCannotPoisonBatch(t *testing.T) {
+	cases := []struct {
+		name   string
+		modify func(*usage.Record)
+		absent string
+		reason string
+	}{
+		{"secret session", func(r *usage.Record) { r.NativeSource = "claude"; r.NativeSessionID = "bad@example.com" }, "cliproxyapi.client.source", "client_session_id_invalid"},
+		{"token shaped secret", func(r *usage.Record) {
+			r.NativeSource = "codex"
+			r.NativeSessionID = "sk-proj-123456789012345678901234567890"
+		}, "cliproxyapi.client.source", "client_session_id_invalid"},
+		{"oversized direct ID", func(r *usage.Record) { r.NativeSource = "codex"; r.NativeSessionID = strings.Repeat("a", 129) }, "cliproxyapi.client.source", "client_session_id_invalid"},
+		{"main agent", func(r *usage.Record) {
+			r.NativeSource = "claude"
+			r.NativeSessionID = "session"
+			r.NativeAgentID = "main"
+		}, "cliproxyapi.client.agent.id", "client_agent_id_invalid"},
+		{"codex agent", func(r *usage.Record) {
+			r.NativeSource = "codex"
+			r.NativeSessionID = "session"
+			r.NativeAgentID = "role"
+		}, "cliproxyapi.client.agent.id", "client_agent_id_invalid"},
+		{"claude parent", func(r *usage.Record) {
+			r.NativeSource = "claude"
+			r.NativeSessionID = "session"
+			r.NativeParentSessionID = "root"
+		}, "cliproxyapi.client.session.parent_id", "client_parent_session_id_invalid"},
+		{"self parent", func(r *usage.Record) {
+			r.NativeSource = "codex"
+			r.NativeSessionID = "root"
+			r.NativeParentSessionID = "root"
+		}, "cliproxyapi.client.source", "client_session_ambiguous"},
+		{"invalid inbound pair", func(r *usage.Record) { r.InboundTraceID = "0123456789abcdef0123456789abcdef" }, "cliproxyapi.inbound.trace_id", "inbound_traceparent_invalid"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			record := sampleRecord()
+			test.modify(&record)
+			item, _, reason, err := mapRecord(record, uuid.New(), []byte("synthetic-secret"))
+			if err != nil {
+				t.Fatalf("map: %v %s", err, reason)
+			}
+			for _, attr := range item.ScopeSpans[0].Spans[0].Attributes {
+				if attr.Key == test.absent {
+					t.Fatalf("invalid attribute emitted: %s", attr.Key)
+				}
+			}
+			if !slices.Contains(omissionReasons(record), test.reason) {
+				t.Fatalf("missing omission reason %q: %v", test.reason, omissionReasons(record))
+			}
+		})
 	}
 }

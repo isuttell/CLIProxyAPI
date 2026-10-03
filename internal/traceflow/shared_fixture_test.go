@@ -90,7 +90,7 @@ func TestSharedExecutionFixtureSemantics(t *testing.T) {
 					t.Fatal(err)
 				}
 				present := attrs["gen_ai.usage.missing"].BoolValue == nil
-				record := usage.Record{RequestID: attrs["cliproxyapi.execution.id"].StringValue, Provider: "codex", ExecutorType: "CodexExecutor", Model: source.Name, RequestedAt: time.Unix(0, start), Latency: time.Duration(end - start), UsagePresent: &present, Failed: source.Status.Code == 2, TraceID: attrs["cliproxyapi.request.id"].StringValue, Alias: attrs["cliproxyapi.request.model_alias"].StringValue, ResponseModel: attrs["gen_ai.response.model"].StringValue, ServiceTier: attrs["cliproxyapi.request.service_tier"].StringValue, ResponseServiceTier: attrs["cliproxyapi.response.service_tier"].StringValue, SessionID: attrs["cliproxyapi.session.id"].StringValue, ParentSessionID: attrs["cliproxyapi.session.parent_id"].StringValue}
+				record := usage.Record{RequestID: attrs["cliproxyapi.execution.id"].StringValue, Provider: "codex", ExecutorType: "CodexExecutor", Model: source.Name, RequestedAt: time.Unix(0, start), Latency: time.Duration(end - start), UsagePresent: &present, Failed: source.Status.Code == 2, TraceID: attrs["cliproxyapi.request.id"].StringValue, Alias: attrs["cliproxyapi.request.model_alias"].StringValue, ResponseModel: attrs["gen_ai.response.model"].StringValue, ServiceTier: attrs["cliproxyapi.request.service_tier"].StringValue, ResponseServiceTier: attrs["cliproxyapi.response.service_tier"].StringValue, SessionID: attrs["cliproxyapi.session.id"].StringValue, ParentSessionID: attrs["cliproxyapi.session.parent_id"].StringValue, NativeSource: attrs["cliproxyapi.client.source"].StringValue, NativeSessionID: attrs["cliproxyapi.client.session.id"].StringValue, NativeAgentID: attrs["cliproxyapi.client.agent.id"].StringValue, NativeParentSessionID: attrs["cliproxyapi.client.session.parent_id"].StringValue, NativeOriginSessionID: attrs["cliproxyapi.client.session.origin_id"].StringValue, InboundTraceID: attrs["cliproxyapi.inbound.trace_id"].StringValue, InboundSpanID: attrs["cliproxyapi.inbound.span_id"].StringValue}
 				if stream := attrs["gen_ai.streaming"].BoolValue; stream != nil {
 					record.Stream = *stream
 				}
@@ -138,7 +138,7 @@ func TestSharedExecutionFixtureSemantics(t *testing.T) {
 			}
 		}
 	}
-	if count != 5 {
-		t.Fatalf("shared fixture had %d spans, expected 5", count)
+	if count != 6 {
+		t.Fatalf("shared fixture had %d spans, expected 6", count)
 	}
 }

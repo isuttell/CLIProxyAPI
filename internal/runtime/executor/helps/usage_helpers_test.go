@@ -1268,3 +1268,20 @@ func TestUsageReporter_ExplicitTraceIDPrecedenceOverLogRequestID(t *testing.T) {
 		t.Fatalf("record.TraceID = %q, want explicit-trace-1", record.TraceID)
 	}
 }
+
+func TestUsageReporterSnapshotsNativeMetadata(t *testing.T) {
+	meta := logging.ClientRequestMetadata{
+		SessionID: "codex:child", NativeCaptured: true, NativeSource: "codex",
+		NativeSessionID: "child", NativeParentSessionID: "root", NativeOriginSessionID: "origin",
+		InboundTraceID: "0123456789abcdef0123456789abcdef", InboundSpanID: "0123456789abcdef",
+	}
+	ctx := logging.WithClientRequestMetadata(context.Background(), meta)
+	reporter := NewUsageReporter(ctx, "codex", "gpt-5", nil)
+	meta.SessionID = "lcp:rewritten"
+	meta.NativeSessionID = "changed"
+	ctx = logging.WithClientRequestMetadata(ctx, meta)
+	record := reporter.buildRecord(usage.Detail{}, false)
+	if record.NativeSource != "codex" || record.NativeSessionID != "child" || record.NativeParentSessionID != "root" || record.NativeOriginSessionID != "origin" || record.InboundTraceID != "0123456789abcdef0123456789abcdef" || record.InboundSpanID != "0123456789abcdef" {
+		t.Fatalf("usage record lost ingress snapshot: %+v", record)
+	}
+}

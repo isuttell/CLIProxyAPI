@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -321,5 +323,65 @@ func TestEnrichContextWithSessionHierarchyFromBody(t *testing.T) {
 	meta8 := logging.GetClientRequestMetadata(ctx8)
 	if meta8.SessionID != "session:opencode-sess-1" || meta8.ParentSessionID != "session:opencode-root-1" {
 		t.Fatalf("OpenCode parent_id session = (%q, %q), want (session:opencode-sess-1, session:opencode-root-1)", meta8.SessionID, meta8.ParentSessionID)
+	}
+}
+
+func TestEnrichContextCapturesNativeMetadataBeforeRoutingRewrite(t *testing.T) {
+	headers := http.Header{
+		"Thread-Id": {"child-thread"}, "Session-Id": {"origin-session"},
+		"X-Codex-Turn-Metadata": {`{"parent_thread_id":"root-thread"}`},
+		"Traceparent":           {"00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"},
+	}
+	ctx := EnrichContextWithSessionHierarchy(context.Background(), headers, nil, nil)
+	ctx = EnrichContextWithSessionHierarchy(ctx, http.Header{"Session-Id": {"rewritten-session"}}, nil, nil)
+	meta := logging.GetClientRequestMetadata(ctx)
+	if meta.NativeSource != "codex" || meta.NativeSessionID != "child-thread" || meta.NativeParentSessionID != "root-thread" || meta.NativeOriginSessionID != "origin-session" || meta.InboundTraceID != "0123456789abcdef0123456789abcdef" || meta.InboundSpanID != "0123456789abcdef" {
+		t.Fatalf("native metadata changed on re-enrichment: %+v", meta)
+	}
+}
+
+func TestEnrichContextOmitsInboundTraceparentOnWebsocketTurn(t *testing.T) {
+	ctx := coreexecutor.WithDownstreamWebsocket(context.Background())
+	headers := http.Header{"Originator": {"codex_cli"}, "Thread-Id": {"child-thread"}, "Traceparent": {"00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"}}
+	meta := logging.GetClientRequestMetadata(EnrichContextWithSessionHierarchy(ctx, headers, nil, nil))
+	if meta.NativeSessionID != "child-thread" || meta.InboundTraceID != "" || meta.InboundSpanID != "" || meta.InboundTraceparentInvalid {
+		t.Fatalf("websocket turn metadata: %+v", meta)
+	}
+}
+
+func TestSharedNativeMetadataFixture(t *testing.T) {
+	raw, err := os.ReadFile("../../../internal/traceflow/testdata/cliproxyapi-session-metadata-v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Cases []struct {
+			Name     string      `json:"name"`
+			Headers  http.Header `json:"headers"`
+			Body     string      `json:"body"`
+			Expected struct {
+				Source             string `json:"source"`
+				SessionID          string `json:"session_id"`
+				AgentID            string `json:"agent_id"`
+				ParentSessionID    string `json:"parent_session_id"`
+				OriginSessionID    string `json:"origin_session_id"`
+				InboundTraceID     string `json:"inbound_trace_id"`
+				InboundSpanID      string `json:"inbound_span_id"`
+				SessionIDAmbiguous bool   `json:"session_id_ambiguous"`
+			} `json:"expected"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range fixture.Cases {
+		t.Run(test.Name, func(t *testing.T) {
+			ctx := EnrichContextWithSessionHierarchy(context.Background(), test.Headers, []byte(test.Body), nil)
+			got := logging.GetClientRequestMetadata(ctx)
+			want := test.Expected
+			if got.NativeSource != want.Source || got.NativeSessionID != want.SessionID || got.NativeAgentID != want.AgentID || got.NativeParentSessionID != want.ParentSessionID || got.NativeOriginSessionID != want.OriginSessionID || got.InboundTraceID != want.InboundTraceID || got.InboundSpanID != want.InboundSpanID || got.NativeSessionIDAmbiguous != want.SessionIDAmbiguous {
+				t.Fatalf("shared fixture mismatch: %+v", got)
+			}
+		})
 	}
 }

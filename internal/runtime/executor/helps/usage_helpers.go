@@ -26,36 +26,49 @@ import (
 )
 
 type UsageReporter struct {
-	requestID           string
-	traceID             string
-	provider            string
-	baseURL             string
-	executorType        string
-	model               string
-	alias               string
-	authID              string
-	authIndex           string
-	authMu              sync.RWMutex
-	accessTokenHash     string
-	authType            string
-	apiKey              string
-	sessionID           string
-	parentSessionID     string
-	source              string
-	reasoning           string
-	serviceTier         string
-	generate            bool
-	stream              bool
-	requestedAt         time.Time
-	ttftMu              sync.RWMutex
-	ttft                time.Duration
-	firstPacketDuration time.Duration
-	firstPacketSet      bool
-	accountIdentity     usage.AccountIdentity
-	ttftStart           time.Time
-	ttftSet             bool
-	tokenTTFTSet        bool
-	once                sync.Once
+	requestID                    string
+	traceID                      string
+	provider                     string
+	baseURL                      string
+	executorType                 string
+	model                        string
+	alias                        string
+	authID                       string
+	authIndex                    string
+	authMu                       sync.RWMutex
+	accessTokenHash              string
+	authType                     string
+	apiKey                       string
+	sessionID                    string
+	parentSessionID              string
+	nativeSource                 string
+	nativeSessionID              string
+	nativeAgentID                string
+	nativeParentSessionID        string
+	nativeOriginSessionID        string
+	nativeSessionIDInvalid       bool
+	nativeAgentIDInvalid         bool
+	nativeParentSessionIDInvalid bool
+	nativeOriginSessionIDInvalid bool
+	nativeSessionIDAmbiguous     bool
+	inboundTraceID               string
+	inboundSpanID                string
+	inboundTraceparentInvalid    bool
+	source                       string
+	reasoning                    string
+	serviceTier                  string
+	generate                     bool
+	stream                       bool
+	requestedAt                  time.Time
+	ttftMu                       sync.RWMutex
+	ttft                         time.Duration
+	firstPacketDuration          time.Duration
+	firstPacketSet               bool
+	accountIdentity              usage.AccountIdentity
+	ttftStart                    time.Time
+	ttftSet                      bool
+	tokenTTFTSet                 bool
+	once                         sync.Once
 
 	responseModelMu sync.RWMutex
 	// responseModel holds the latest model name reported by the upstream response.
@@ -119,22 +132,35 @@ func NewUsageReporter(ctx context.Context, provider, model string, auth *cliprox
 		traceID = internallogging.GetRequestID(ctx)
 	}
 	reporter := &UsageReporter{
-		requestID:       uuid.NewString(),
-		traceID:         traceID,
-		provider:        provider,
-		baseURL:         baseURL,
-		model:           model,
-		alias:           strings.TrimSpace(alias),
-		requestedAt:     time.Now(),
-		apiKey:          apiKey,
-		sessionID:       sessionID,
-		parentSessionID: parentSessionID,
-		source:          resolveUsageSource(auth, apiKey),
-		authType:        resolveUsageAuthType(auth),
-		reasoning:       usage.ReasoningEffortFromContext(ctx),
-		serviceTier:     usage.ServiceTierFromContext(ctx),
-		generate:        usage.GenerateFromContext(ctx),
-		stream:          usage.StreamFromContext(ctx),
+		requestID:                    uuid.NewString(),
+		traceID:                      traceID,
+		provider:                     provider,
+		baseURL:                      baseURL,
+		model:                        model,
+		alias:                        strings.TrimSpace(alias),
+		requestedAt:                  time.Now(),
+		apiKey:                       apiKey,
+		sessionID:                    sessionID,
+		parentSessionID:              parentSessionID,
+		nativeSource:                 clientMeta.NativeSource,
+		nativeSessionID:              clientMeta.NativeSessionID,
+		nativeAgentID:                clientMeta.NativeAgentID,
+		nativeParentSessionID:        clientMeta.NativeParentSessionID,
+		nativeOriginSessionID:        clientMeta.NativeOriginSessionID,
+		nativeSessionIDInvalid:       clientMeta.NativeSessionIDInvalid,
+		nativeAgentIDInvalid:         clientMeta.NativeAgentIDInvalid,
+		nativeParentSessionIDInvalid: clientMeta.NativeParentSessionIDInvalid,
+		nativeOriginSessionIDInvalid: clientMeta.NativeOriginSessionIDInvalid,
+		nativeSessionIDAmbiguous:     clientMeta.NativeSessionIDAmbiguous,
+		inboundTraceID:               clientMeta.InboundTraceID,
+		inboundSpanID:                clientMeta.InboundSpanID,
+		inboundTraceparentInvalid:    clientMeta.InboundTraceparentInvalid,
+		source:                       resolveUsageSource(auth, apiKey),
+		authType:                     resolveUsageAuthType(auth),
+		reasoning:                    usage.ReasoningEffortFromContext(ctx),
+		serviceTier:                  usage.ServiceTierFromContext(ctx),
+		generate:                     usage.GenerateFromContext(ctx),
+		stream:                       usage.StreamFromContext(ctx),
 	}
 	if auth != nil {
 		reporter.authID = auth.ID
@@ -640,36 +666,49 @@ func (r *UsageReporter) buildRecordForModel(model string, detail usage.Detail, f
 	}
 	ttft, tokenTTFTPresent := r.ttftSnapshot()
 	return usage.Record{
-		RequestID:           r.requestID,
-		TraceID:             r.traceID,
-		Provider:            r.provider,
-		BaseURL:             r.baseURL,
-		ExecutorType:        r.executorType,
-		Model:               model,
-		Alias:               r.alias,
-		Source:              r.source,
-		APIKey:              r.apiKey,
-		SessionID:           r.sessionID,
-		ParentSessionID:     r.parentSessionID,
-		AuthID:              r.authID,
-		AuthIndex:           r.authIndex,
-		AccessTokenSHA256:   r.accessTokenFingerprint(),
-		AuthType:            r.authType,
-		ReasoningEffort:     r.reasoning,
-		ServiceTier:         r.serviceTier,
-		ResponseServiceTier: strings.TrimSpace(detail.ResponseServiceTier),
-		ResponseModel:       responseModel,
-		Generate:            usage.GenerateFlag(r.generate),
-		Stream:              r.stream,
-		RequestedAt:         r.requestedAt,
-		Latency:             r.latency(),
-		TTFT:                ttft,
-		TTFTPresent:         tokenTTFTPresent,
-		UsagePresent:        usage.GenerateFlag(detail.UsagePresent || usage.HasNonZeroUsage(detail)),
-		AccountIdentity:     r.accountIdentity,
-		Failed:              failed,
-		Fail:                fail,
-		Detail:              detail,
+		RequestID:                    r.requestID,
+		TraceID:                      r.traceID,
+		Provider:                     r.provider,
+		BaseURL:                      r.baseURL,
+		ExecutorType:                 r.executorType,
+		Model:                        model,
+		Alias:                        r.alias,
+		Source:                       r.source,
+		APIKey:                       r.apiKey,
+		SessionID:                    r.sessionID,
+		ParentSessionID:              r.parentSessionID,
+		NativeSource:                 r.nativeSource,
+		NativeSessionID:              r.nativeSessionID,
+		NativeAgentID:                r.nativeAgentID,
+		NativeParentSessionID:        r.nativeParentSessionID,
+		NativeOriginSessionID:        r.nativeOriginSessionID,
+		NativeSessionIDInvalid:       r.nativeSessionIDInvalid,
+		NativeAgentIDInvalid:         r.nativeAgentIDInvalid,
+		NativeParentSessionIDInvalid: r.nativeParentSessionIDInvalid,
+		NativeOriginSessionIDInvalid: r.nativeOriginSessionIDInvalid,
+		NativeSessionIDAmbiguous:     r.nativeSessionIDAmbiguous,
+		InboundTraceID:               r.inboundTraceID,
+		InboundSpanID:                r.inboundSpanID,
+		InboundTraceparentInvalid:    r.inboundTraceparentInvalid,
+		AuthID:                       r.authID,
+		AuthIndex:                    r.authIndex,
+		AccessTokenSHA256:            r.accessTokenFingerprint(),
+		AuthType:                     r.authType,
+		ReasoningEffort:              r.reasoning,
+		ServiceTier:                  r.serviceTier,
+		ResponseServiceTier:          strings.TrimSpace(detail.ResponseServiceTier),
+		ResponseModel:                responseModel,
+		Generate:                     usage.GenerateFlag(r.generate),
+		Stream:                       r.stream,
+		RequestedAt:                  r.requestedAt,
+		Latency:                      r.latency(),
+		TTFT:                         ttft,
+		TTFTPresent:                  tokenTTFTPresent,
+		UsagePresent:                 usage.GenerateFlag(detail.UsagePresent || usage.HasNonZeroUsage(detail)),
+		AccountIdentity:              r.accountIdentity,
+		Failed:                       failed,
+		Fail:                         fail,
+		Detail:                       detail,
 	}
 }
 

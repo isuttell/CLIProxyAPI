@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "claude-header",
+      "headers": {
+        "X-Claude-Code-Session-Id": ["claude-session-1"],
+        "X-Claude-Code-Agent-Id": ["agent-1"],
+        "Traceparent": ["00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"]
+      },
+      "body": "",
+      "expected": {
+        "source": "claude",
+        "session_id": "claude-session-1",
+        "agent_id": "agent-1",
+        "inbound_trace_id": "0123456789abcdef0123456789abcdef",
+        "inbound_span_id": "0123456789abcdef"
+      }
+    },
+    {
+      "name": "codex-thread",
+      "headers": {
+        "Thread-Id": ["child-thread-6"],
+        "Session-Id": ["origin-session-6"],
+        "X-Codex-Turn-Metadata": ["{\"parent_thread_id\":\"root-thread-6\"}"]
+      },
+      "body": "",
+      "expected": {
+        "source": "codex",
+        "session_id": "child-thread-6",
+        "parent_session_id": "root-thread-6",
+        "origin_session_id": "origin-session-6"
+      }
+    },
+    {
+      "name": "codex-ambiguous",
+      "headers": {
+        "Session-Id": ["root-thread-6"],
+        "X-Openai-Subagent": ["true"],
+        "Originator": ["codex_cli"]
+      },
+      "body": "",
+      "expected": {
+        "session_id_ambiguous": true
+      }
+    },
+    {
+      "name": "generic-session",
+      "headers": {
+        "Session-Id": ["unattributed-session"]
+      },
+      "body": "",
+      "expected": {}
+    }
+  ]
+}
