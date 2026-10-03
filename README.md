@@ -140,6 +140,9 @@ PackyCode provides special discounts for our software users: register using <a h
 
 ## Getting Started
 
+For supervised macOS deployments and isolated agent test ports, see
+[Running CLIProxyAPI with launchd](docs/launchd.md).
+
 CLIProxyAPI Guides: [https://help.router-for.me/](https://help.router-for.me/)
 
 ## Management API
