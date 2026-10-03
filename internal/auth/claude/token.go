@@ -33,7 +33,8 @@ type ClaudeTokenStorage struct {
 	Email string `json:"email"`
 
 	// AccountUUID identifies the Anthropic account returned by OAuth.
-	AccountUUID string `json:"account_uuid,omitempty"`
+	AccountUUID        string `json:"account_uuid,omitempty"`
+	IdentityProvenance string `json:"identity_provenance,omitempty"`
 
 	// OrganizationUUID identifies the Anthropic organization returned by OAuth.
 	OrganizationUUID string `json:"organization_uuid,omitempty"`
@@ -83,6 +84,14 @@ func (ts *ClaudeTokenStorage) SaveTokenToFile(authFilePath string) error {
 	data, errMerge := misc.MergeMetadata(ts, ts.Metadata)
 	if errMerge != nil {
 		return fmt.Errorf("failed to merge metadata: %w", errMerge)
+	}
+	// Hook metadata cannot create or change provider identity evidence.
+	if ts.IdentityProvenance == "anthropic_oauth" {
+		data["identity_provenance"] = ts.IdentityProvenance
+		data["account_uuid"] = ts.AccountUUID
+		data["organization_uuid"] = ts.OrganizationUUID
+	} else {
+		delete(data, "identity_provenance")
 	}
 
 	// Create the token file

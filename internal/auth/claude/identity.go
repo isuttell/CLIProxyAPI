@@ -284,3 +284,35 @@ func ValidDeviceID(value string) bool {
 	decoded, errDecode := hex.DecodeString(value)
 	return errDecode == nil && len(decoded) == claudeDeviceIDByteSize
 }
+
+// ReadOAuthIdentity returns one consistent provider identity tuple from credential metadata.
+func ReadOAuthIdentity(metadata *map[string]any) (organizationUUID, accountUUID, provenance string) {
+	if metadata == nil {
+		return "", "", ""
+	}
+	claudeDevicePoolMu.Lock()
+	defer claudeDevicePoolMu.Unlock()
+	if *metadata == nil {
+		return "", "", ""
+	}
+	organizationUUID, _ = (*metadata)["organization_uuid"].(string)
+	accountUUID, _ = (*metadata)["account_uuid"].(string)
+	provenance, _ = (*metadata)["identity_provenance"].(string)
+	return
+}
+
+// StoreOAuthIdentity replaces the provider identity tuple after a complete OAuth observation.
+func StoreOAuthIdentity(metadata *map[string]any, organizationUUID, accountUUID, provenance string) {
+	if metadata == nil || provenance != "anthropic_oauth" ||
+		strings.TrimSpace(organizationUUID) == "" || strings.TrimSpace(accountUUID) == "" {
+		return
+	}
+	claudeDevicePoolMu.Lock()
+	defer claudeDevicePoolMu.Unlock()
+	if *metadata == nil {
+		*metadata = make(map[string]any)
+	}
+	(*metadata)["organization_uuid"] = organizationUUID
+	(*metadata)["account_uuid"] = accountUUID
+	(*metadata)["identity_provenance"] = provenance
+}

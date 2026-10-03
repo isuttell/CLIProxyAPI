@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	internallogging "github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/usageidentity"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -19,6 +20,9 @@ const DefaultServiceTier = "default"
 // OpenAI HTTP handlers set it explicitly, without changing other providers'
 // historical direct-SDK default.
 const AutoServiceTier = "auto"
+
+// AccountIdentity carries immutable selected-credential identity facts.
+type AccountIdentity = usageidentity.AccountIdentity
 
 // Record contains the usage statistics captured for a single provider request.
 type Record struct {
@@ -65,6 +69,11 @@ type Record struct {
 	Failed      bool
 	Fail        Failure
 	Detail      Detail
+	// UsagePresent distinguishes reported zero counts from missing usage. Nil supports legacy callers.
+	UsagePresent *bool
+	// TTFTPresent is true only for a substantive upstream token event.
+	TTFTPresent     bool
+	AccountIdentity AccountIdentity `json:"-"`
 	// ResponseHeaders stores a snapshot of upstream response headers for usage sinks.
 	ResponseHeaders http.Header
 }
@@ -86,6 +95,23 @@ type Detail struct {
 	TotalTokens         int64
 	TokenBreakdown      TokenBreakdown
 	ResponseServiceTier string
+	// UsagePresent is set by parsers only when a recognized count field was reported.
+	UsagePresent bool
+}
+
+// HasUsage resolves legacy records before token breakdown normalization can turn missing usage into zero.
+func (r Record) HasUsage() bool {
+	if r.UsagePresent != nil {
+		return *r.UsagePresent
+	}
+	return HasNonZeroUsage(r.Detail)
+}
+
+// HasNonZeroUsage reports count evidence from an unnormalized detail.
+func HasNonZeroUsage(d Detail) bool {
+	return d.InputTokens != 0 || d.OutputTokens != 0 || d.ReasoningTokens != 0 ||
+		d.CachedTokens != 0 || d.CacheReadTokens != 0 || d.CacheCreationTokens != 0 ||
+		d.TotalTokens != 0 || d.TokenBreakdown.TotalTokens != 0
 }
 
 type requestedModelAliasContextKey struct{}
@@ -307,6 +333,7 @@ type Manager struct {
 	cond   *sync.Cond
 	queue  []queueItem
 	closed bool
+	done   chan struct{}
 
 	pluginsMu sync.RWMutex
 	plugins   []Plugin
@@ -315,7 +342,7 @@ type Manager struct {
 
 // NewManager constructs a manager with a buffered queue.
 func NewManager(buffer int) *Manager {
-	m := &Manager{}
+	m := &Manager{done: make(chan struct{})}
 	m.cond = sync.NewCond(&m.mu)
 	return m
 }
@@ -340,6 +367,7 @@ func (m *Manager) Stop() {
 	if m == nil {
 		return
 	}
+	m.Start(context.Background())
 	m.stopOnce.Do(func() {
 		if m.cancel != nil {
 			m.cancel()
@@ -349,6 +377,23 @@ func (m *Manager) Stop() {
 		m.mu.Unlock()
 		m.cond.Broadcast()
 	})
+}
+
+// StopAndWait closes intake and waits for every queued plugin invocation to finish.
+func (m *Manager) StopAndWait(ctx context.Context) error {
+	if m == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	m.Stop()
+	select {
+	case <-m.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // Register appends a plugin to the delivery list.
@@ -391,6 +436,10 @@ func (m *Manager) Publish(ctx context.Context, record Record) {
 	if m == nil {
 		return
 	}
+	if record.UsagePresent == nil {
+		present := HasNonZeroUsage(record.Detail)
+		record.UsagePresent = &present
+	}
 	if strings.TrimSpace(record.RequestID) == "" {
 		if reqID := ExecutionRequestIDFromContext(ctx); reqID != "" {
 			record.RequestID = reqID
@@ -410,6 +459,7 @@ func (m *Manager) Publish(ctx context.Context, record Record) {
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
+		log.WithField("component", "usage").Warn("usage record dropped after dispatcher shutdown")
 		return
 	}
 	m.queue = append(m.queue, queueItem{ctx: ctx, record: record})
@@ -418,6 +468,7 @@ func (m *Manager) Publish(ctx context.Context, record Record) {
 }
 
 func (m *Manager) run(ctx context.Context) {
+	defer close(m.done)
 	for {
 		m.mu.Lock()
 		for !m.closed && len(m.queue) == 0 {
@@ -478,3 +529,6 @@ func StartDefault(ctx context.Context) { DefaultManager().Start(ctx) }
 
 // StopDefault stops the default manager's dispatcher.
 func StopDefault() { DefaultManager().Stop() }
+
+// StopDefaultAndWait waits for the default manager to finish queued deliveries.
+func StopDefaultAndWait(ctx context.Context) error { return DefaultManager().StopAndWait(ctx) }

@@ -1,0 +1,294 @@
+{
+  "contract": "cliproxyapi.account-identity/1",
+  "description": "Synthetic account identity vectors for cliproxyapi.account.ref. Every secret and identifier is fabricated. See docs/guides/imported-executions.md#upstream-account-identity.",
+  "installation_secrets_hex": {
+    "primary": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "other": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+  },
+  "cases": [
+    {
+      "name": "codex-workspace-member-a",
+      "installation": "primary",
+      "evidence": {
+        "family": "codex",
+        "provider_key": "codex",
+        "provider_account": {
+          "workspace_account_id": "workspace-synthetic-0001",
+          "member_user_id": "user-synthetic-member-a"
+        },
+        "auth_id": "codex-member-a.json",
+        "non_identity": {
+          "access_token_label": "synthetic-before-refresh",
+          "expires_at": "2026-10-02T00:00:00Z"
+        }
+      },
+      "coverage": "provider-account",
+      "id": "[\"provider-account/1\",\"codex\",\"workspace-synthetic-0001\",\"user-synthetic-member-a\"]",
+      "ref": "e4c6d0319d636cbd0cb8ba87f41fca5bc81626347b63689e7e05b04d8ed1d47a"
+    },
+    {
+      "name": "codex-workspace-member-a-refreshed",
+      "installation": "primary",
+      "evidence": {
+        "family": "codex",
+        "provider_key": "codex",
+        "provider_account": {
+          "workspace_account_id": "workspace-synthetic-0001",
+          "member_user_id": "user-synthetic-member-a"
+        },
+        "auth_id": "codex-member-a.json",
+        "non_identity": {
+          "access_token_label": "synthetic-after-refresh",
+          "expires_at": "2026-10-12T00:00:00Z"
+        }
+      },
+      "coverage": "provider-account",
+      "id": "[\"provider-account/1\",\"codex\",\"workspace-synthetic-0001\",\"user-synthetic-member-a\"]",
+      "ref": "e4c6d0319d636cbd0cb8ba87f41fca5bc81626347b63689e7e05b04d8ed1d47a"
+    },
+    {
+      "name": "codex-workspace-member-a-relocated-credential",
+      "installation": "primary",
+      "evidence": {
+        "family": "codex",
+        "provider_key": "codex",
+        "provider_account": {
+          "workspace_account_id": "workspace-synthetic-0001",
+          "member_user_id": "user-synthetic-member-a"
+        },
+        "auth_id": "codex-member-a-moved.json"
+      },
+      "coverage": "provider-account",
+      "id": "[\"provider-account/1\",\"codex\",\"workspace-synthetic-0001\",\"user-synthetic-member-a\"]",
+      "ref": "e4c6d0319d636cbd0cb8ba87f41fca5bc81626347b63689e7e05b04d8ed1d47a"
+    },
+    {
+      "name": "codex-workspace-member-b",
+      "installation": "primary",
+      "evidence": {
+        "family": "codex",
+        "provider_key": "codex",
+        "provider_account": {
+          "workspace_account_id": "workspace-synthetic-0001",
+          "member_user_id": "user-synthetic-member-b"
+        },
+        "auth_id": "codex-member-b.json"
+      },
+      "coverage": "provider-account",
+      "id": "[\"provider-account/1\",\"codex\",\"workspace-synthetic-0001\",\"user-synthetic-member-b\"]",
+      "ref": "93312b0c94096c61fe92266805386aafc09e4b5c25d4c0b14a9076aa15795d90"
+    },
+    {
+      "name": "codex-workspace-member-a-other-installation",
+      "installation": "other",
+      "evidence": {
+        "family": "codex",
+        "provider_key": "codex",
+        "provider_account": {
+          "workspace_account_id": "workspace-synthetic-0001",
+          "member_user_id": "user-synthetic-member-a"
+        },
+        "auth_id": "codex-member-a.json"
+      },
+      "coverage": "provider-account",
+      "id": "[\"provider-account/1\",\"codex\",\"workspace-synthetic-0001\",\"user-synthetic-member-a\"]",
+      "ref": "95f9215a2537483016bd30e244ea79f6d2e93cb85fbab8288710f15f4fbd5b6a"
+    },
+    {
+      "name": "codex-workspace-without-member",
+      "installation": "primary",
+      "evidence": {
+        "family": "codex",
+        "provider_key": "codex",
+        "provider_account": {
+          "workspace_account_id": "workspace-synthetic-0001"
+        },
+        "auth_id": "codex-workspace-only.json"
+      },
+      "coverage": "credential",
+      "id": "[\"credential/1\",\"codex\",\"codex\",\"codex-workspace-only.json\"]",
+      "ref": "325bb0694f64181a03384402327c2e3c1a14b282d8534fbe8a750fc77b3a2a47"
+    },
+    {
+      "name": "codex-workspace-empty-member",
+      "installation": "primary",
+      "evidence": {
+        "family": "codex",
+        "provider_key": "codex",
+        "provider_account": {
+          "workspace_account_id": "workspace-synthetic-0001",
+          "member_user_id": ""
+        },
+        "auth_id": "codex-empty-member.json"
+      },
+      "coverage": "credential",
+      "id": "[\"credential/1\",\"codex\",\"codex\",\"codex-empty-member.json\"]",
+      "ref": "30b87e793cf033e29db65d15ff4a6782d17419687f0ffa82dc5a6662c2f7b32f"
+    },
+    {
+      "name": "codex-workspace-without-member-or-auth-id",
+      "installation": "primary",
+      "evidence": {
+        "family": "codex",
+        "provider_key": "codex",
+        "provider_account": {
+          "workspace_account_id": "workspace-synthetic-0001"
+        }
+      },
+      "coverage": "unknown",
+      "id": null,
+      "ref": null
+    },
+    {
+      "name": "claude-org-a-account-a",
+      "installation": "primary",
+      "evidence": {
+        "family": "claude",
+        "provider_key": "claude",
+        "auth_id": "claude-a.json",
+        "provider_account": {
+          "organization_uuid": "00000000-0000-4000-8000-0000000000a1",
+          "account_uuid": "00000000-0000-4000-8000-00000000a0a0"
+        }
+      },
+      "coverage": "provider-account",
+      "id": "[\"provider-account/1\",\"claude\",\"00000000-0000-4000-8000-0000000000a1\",\"00000000-0000-4000-8000-00000000a0a0\"]",
+      "ref": "f37ff29fa647364a7daa5c956a2e1919dc1d5a16850f614134406a3ae6839c4b"
+    },
+    {
+      "name": "claude-org-a-account-b",
+      "installation": "primary",
+      "evidence": {
+        "family": "claude",
+        "provider_key": "claude",
+        "auth_id": "claude-b.json",
+        "provider_account": {
+          "organization_uuid": "00000000-0000-4000-8000-0000000000a1",
+          "account_uuid": "00000000-0000-4000-8000-00000000b0b0"
+        }
+      },
+      "coverage": "provider-account",
+      "id": "[\"provider-account/1\",\"claude\",\"00000000-0000-4000-8000-0000000000a1\",\"00000000-0000-4000-8000-00000000b0b0\"]",
+      "ref": "8fdfaa4a048bf3d9cbec82ad7d46c25167e5a1545240d6df6fcd2b5c944e9031"
+    },
+    {
+      "name": "claude-org-b-account-a",
+      "installation": "primary",
+      "evidence": {
+        "family": "claude",
+        "provider_key": "claude",
+        "auth_id": "claude-c.json",
+        "provider_account": {
+          "organization_uuid": "00000000-0000-4000-8000-0000000000b1",
+          "account_uuid": "00000000-0000-4000-8000-00000000a0a0"
+        }
+      },
+      "coverage": "provider-account",
+      "id": "[\"provider-account/1\",\"claude\",\"00000000-0000-4000-8000-0000000000b1\",\"00000000-0000-4000-8000-00000000a0a0\"]",
+      "ref": "ec3a17649956c3cbd736ab2f006a4bdd9e63c1ec10a01e889f1ba0fe8653aca7"
+    },
+    {
+      "name": "claude-org-without-account",
+      "installation": "primary",
+      "evidence": {
+        "family": "claude",
+        "provider_key": "claude",
+        "auth_id": "claude-org-only.json",
+        "provider_account": {
+          "organization_uuid": "00000000-0000-4000-8000-0000000000a1"
+        }
+      },
+      "coverage": "credential",
+      "id": "[\"credential/1\",\"claude\",\"claude\",\"claude-org-only.json\"]",
+      "ref": "7814ff494d7fe1df71e2794b41aad4de160b1845347fc6fdbb2ea8c73be2bdda"
+    },
+    {
+      "name": "claude-without-provider-key",
+      "installation": "primary",
+      "evidence": {
+        "family": "claude",
+        "auth_id": "claude-no-key.json",
+        "provider_account": {
+          "organization_uuid": "00000000-0000-4000-8000-0000000000a1"
+        }
+      },
+      "coverage": "unknown",
+      "id": null,
+      "ref": null
+    },
+    {
+      "name": "compat-openrouter-shared-credential",
+      "installation": "primary",
+      "evidence": {
+        "family": "openai-compatibility",
+        "provider_key": "openrouter",
+        "auth_id": "openai-compatibility-shared-0"
+      },
+      "coverage": "credential",
+      "id": "[\"credential/1\",\"openai-compatibility\",\"openrouter\",\"openai-compatibility-shared-0\"]",
+      "ref": "63c6bdd61ceefd5676ada0a91b41a316a9c715e7024f08cf61e28c65f488fc43"
+    },
+    {
+      "name": "compat-deepseek-shared-credential",
+      "installation": "primary",
+      "evidence": {
+        "family": "openai-compatibility",
+        "provider_key": "deepseek",
+        "auth_id": "openai-compatibility-shared-0"
+      },
+      "coverage": "credential",
+      "id": "[\"credential/1\",\"openai-compatibility\",\"deepseek\",\"openai-compatibility-shared-0\"]",
+      "ref": "99fb7a0c3aaf506331f69c8bd4f5f002f07cb89ef412428102f151f9cc970097"
+    },
+    {
+      "name": "gemini-unversioned-account-evidence",
+      "installation": "primary",
+      "evidence": {
+        "family": "gemini",
+        "provider_key": "gemini",
+        "auth_id": "gemini-project.json",
+        "provider_account": {
+          "project_id": "project-synthetic-0001"
+        }
+      },
+      "coverage": "credential",
+      "id": "[\"credential/1\",\"gemini\",\"gemini\",\"gemini-project.json\"]",
+      "ref": "97e09515d84e8a5b8f37e69a8c7de634899347269a243be2fe65b4067827c085"
+    },
+    {
+      "name": "credential-json-escaping",
+      "installation": "primary",
+      "evidence": {
+        "family": "openai-compatibility",
+        "provider_key": "compat-ünicode",
+        "auth_id": "synthetic<a&b>\"q\"\\s\tt \u0001é/x"
+      },
+      "coverage": "credential",
+      "id": "[\"credential/1\",\"openai-compatibility\",\"compat-ünicode\",\"synthetic<a&b>\\\"q\\\"\\\\s\\tt \\u0001é/x\"]",
+      "ref": "96f7c314cd1540a4fdd6c39951820449a2627acd6e08bbe0deee6321d5b9d447"
+    },
+    {
+      "name": "credential-json-escaping-controls",
+      "installation": "primary",
+      "evidence": {
+        "family": "openai-compatibility",
+        "provider_key": "compat-controls",
+        "auth_id": "synthetic\b\f \\u2028\u0000\u001f\\\\end"
+      },
+      "coverage": "credential",
+      "id": "[\"credential/1\",\"openai-compatibility\",\"compat-controls\",\"synthetic\\b\\f \\\\u2028\\u0000\\u001f\\\\\\\\end\"]",
+      "ref": "cfeac15668e877be5e2748e947e5e90ee2e3b25b4c980c7013a7c5426b863f09"
+    }
+  ],
+  "distinct": [
+    ["codex-workspace-member-a", "codex-workspace-member-b"],
+    ["codex-workspace-member-a", "codex-workspace-member-a-other-installation"],
+    ["claude-org-a-account-a", "claude-org-a-account-b"],
+    ["claude-org-a-account-a", "claude-org-b-account-a"],
+    ["compat-openrouter-shared-credential", "compat-deepseek-shared-credential"]
+  ],
+  "equal": [
+    ["codex-workspace-member-a", "codex-workspace-member-a-refreshed"],
+    ["codex-workspace-member-a", "codex-workspace-member-a-relocated-credential"]
+  ]
+}

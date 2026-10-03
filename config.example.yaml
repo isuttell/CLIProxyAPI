@@ -1105,6 +1105,19 @@ observability:
     enable: false
     addr: "127.0.0.1:8316"
 
+  # Trace Flow metadata export is independent of the GUI usage feed.
+  # endpoint must be the full /v1/traces URL; keep outbox-path outside auth-dir.
+  # Use a dedicated private state directory: mode 0700 on Unix, trusted-user ACLs on Windows.
+  # Existing public directories are rejected without changing their permissions.
+  # Only the environment variable name is configured, never its secret value.
+  trace-flow:
+    enabled: false
+    endpoint: ""
+    outbox-path: ""
+    api-key-env: "TRACE_FLOW_API_KEY"
+    max-pending-bytes: 268435456
+    min-free-bytes: 1073741824
+
 # Standard dynamic library plugins are trusted in-process code. They are disabled by default.
 # Build Go examples with go build -buildmode=c-shared for the target GOOS/GOARCH.
 # Other languages can implement the same C ABI and JSON method protocol.

@@ -51,8 +51,10 @@ type UsageReporter struct {
 	ttft                time.Duration
 	firstPacketDuration time.Duration
 	firstPacketSet      bool
+	accountIdentity     usage.AccountIdentity
 	ttftStart           time.Time
 	ttftSet             bool
+	tokenTTFTSet        bool
 	once                sync.Once
 
 	responseModelMu sync.RWMutex
@@ -79,6 +81,9 @@ func NewExecutorUsageReporter(ctx context.Context, executor usageExecutor, model
 	}
 	reporter := NewUsageReporter(ctx, provider, model, auth)
 	reporter.executorType = ExecutorTypeName(executor)
+	if auth != nil {
+		reporter.accountIdentity = snapshotAccountIdentity(reporter.executorType, provider, auth)
+	}
 	return reporter
 }
 
@@ -490,6 +495,7 @@ func (r *UsageReporter) ObserveTokenEvent(isToken bool) {
 	if isToken {
 		r.ttft = time.Since(start)
 		r.ttftSet = true
+		r.tokenTTFTSet = true
 		r.ttftStart = time.Time{}
 	}
 }
@@ -520,8 +526,9 @@ func (r *UsageReporter) buildAdditionalModelRecord(model string, detail usage.De
 	if model == "" {
 		return usage.Record{}, false
 	}
+	present := detail.UsagePresent || usage.HasNonZeroUsage(detail)
 	detail = normalizeUsageDetailTotal(detail, r.provider, r.executorType)
-	if !hasNonZeroTokenUsage(detail) {
+	if !present || !hasNonZeroTokenUsage(detail) {
 		return usage.Record{}, false
 	}
 	rec := r.buildRecordForModel(model, detail, false, usage.Failure{})
@@ -550,9 +557,12 @@ func (r *UsageReporter) publishWithOutcome(ctx context.Context, detail usage.Det
 	if r == nil {
 		return
 	}
+	present := detail.UsagePresent || usage.HasNonZeroUsage(detail)
 	detail = normalizeUsageDetailTotal(detail, r.provider, r.executorType)
 	r.once.Do(func() {
-		r.publishAttemptRecord(ctx, r.buildRecord(detail, failed, fail))
+		record := r.buildRecord(detail, failed, fail)
+		record.UsagePresent = usage.GenerateFlag(present)
+		r.publishAttemptRecord(ctx, record)
 	})
 }
 
@@ -561,14 +571,7 @@ func normalizeUsageDetailTotal(detail usage.Detail, provider, executorType strin
 }
 
 func hasNonZeroTokenUsage(detail usage.Detail) bool {
-	return detail.InputTokens != 0 ||
-		detail.OutputTokens != 0 ||
-		detail.ReasoningTokens != 0 ||
-		detail.CachedTokens != 0 ||
-		detail.CacheReadTokens != 0 ||
-		detail.CacheCreationTokens != 0 ||
-		detail.TotalTokens != 0 ||
-		detail.TokenBreakdown.TotalTokens != 0
+	return usage.HasNonZeroUsage(detail)
 }
 
 // ensurePublished guarantees that a usage record is emitted exactly once.
@@ -580,7 +583,9 @@ func (r *UsageReporter) EnsurePublished(ctx context.Context) {
 		return
 	}
 	r.once.Do(func() {
-		r.publishAttemptRecord(ctx, r.buildRecord(usage.Detail{}, false, usage.Failure{}))
+		record := r.buildRecord(usage.Detail{}, false, usage.Failure{})
+		record.UsagePresent = usage.GenerateFlag(false)
+		r.publishAttemptRecord(ctx, record)
 	})
 }
 
@@ -633,6 +638,7 @@ func (r *UsageReporter) buildRecordForModel(model string, detail usage.Detail, f
 	if model == r.model {
 		responseModel = r.ResponseModel()
 	}
+	ttft, tokenTTFTPresent := r.ttftSnapshot()
 	return usage.Record{
 		RequestID:           r.requestID,
 		TraceID:             r.traceID,
@@ -657,7 +663,10 @@ func (r *UsageReporter) buildRecordForModel(model string, detail usage.Detail, f
 		Stream:              r.stream,
 		RequestedAt:         r.requestedAt,
 		Latency:             r.latency(),
-		TTFT:                r.ttftDuration(),
+		TTFT:                ttft,
+		TTFTPresent:         tokenTTFTPresent,
+		UsagePresent:        usage.GenerateFlag(detail.UsagePresent || usage.HasNonZeroUsage(detail)),
+		AccountIdentity:     r.accountIdentity,
 		Failed:              failed,
 		Fail:                fail,
 		Detail:              detail,
@@ -717,18 +726,23 @@ func (r *UsageReporter) setTTFT(ttft time.Duration) {
 }
 
 func (r *UsageReporter) ttftDuration() time.Duration {
+	duration, _ := r.ttftSnapshot()
+	return duration
+}
+
+func (r *UsageReporter) ttftSnapshot() (time.Duration, bool) {
 	if r == nil {
-		return 0
+		return 0, false
 	}
 	r.ttftMu.RLock()
 	defer r.ttftMu.RUnlock()
 	if r.ttftSet {
-		return r.ttft
+		return r.ttft, r.tokenTTFTSet
 	}
 	if r.firstPacketSet {
-		return r.firstPacketDuration
+		return r.firstPacketDuration, false
 	}
-	return 0
+	return 0, false
 }
 
 type usageTTFTRoundTripper struct {
@@ -854,7 +868,13 @@ func (b *StreamUsageBuffer) Observe(detail usage.Detail, ok bool) {
 		return
 	}
 	responseServiceTier := strings.TrimSpace(detail.ResponseServiceTier)
-	if responseServiceTier == "" || hasNonZeroTokenUsage(detail) {
+	if detail.UsagePresent && !hasNonZeroTokenUsage(detail) && hasNonZeroTokenUsage(b.detail) {
+		if responseServiceTier != "" {
+			b.detail.ResponseServiceTier = responseServiceTier
+		}
+		return
+	}
+	if responseServiceTier == "" || detail.UsagePresent || hasNonZeroTokenUsage(detail) {
 		preservedTier := b.detail.ResponseServiceTier
 		b.detail = detail
 		if b.detail.ResponseServiceTier == "" {
@@ -921,6 +941,10 @@ func (b *StreamUsageBuffer) ObserveClaudeStream(line []byte) {
 	}
 	if detail, ok := ParseClaudeStreamUsage(line); ok {
 		ObserveMergedStreamUsage(b, detail)
+	} else if payload := jsonPayload(line); len(payload) > 0 {
+		if tier := extractResponseServiceTier(payload); tier != "" {
+			b.Observe(usage.Detail{ResponseServiceTier: tier}, true)
+		}
 	}
 }
 
@@ -1001,43 +1025,48 @@ func hasOpenAIStyleUsageTokenFields(usageNode gjson.Result) bool {
 	if !usageNode.Exists() || !usageNode.IsObject() {
 		return false
 	}
-	return usageNode.Get("total_tokens").Exists() || hasOpenAIStyleUsageBucketFields(usageNode)
+	return hasCountField(usageNode, "total_tokens") || hasOpenAIStyleUsageBucketFields(usageNode)
 }
 
 func hasOpenAIStyleUsageBucketFields(usageNode gjson.Result) bool {
-	return usageNode.Get("prompt_tokens").Exists() ||
-		usageNode.Get("input_tokens").Exists() ||
-		usageNode.Get("completion_tokens").Exists() ||
-		usageNode.Get("output_tokens").Exists() ||
-		usageNode.Get("prompt_tokens_details.cached_tokens").Exists() ||
-		usageNode.Get("input_tokens_details.cached_tokens").Exists() ||
-		usageNode.Get("prompt_tokens_details.cache_write_tokens").Exists() ||
-		usageNode.Get("prompt_tokens_details.cache_creation_tokens").Exists() ||
-		usageNode.Get("input_tokens_details.cache_write_tokens").Exists() ||
-		usageNode.Get("input_tokens_details.cache_creation_tokens").Exists() ||
-		usageNode.Get("completion_tokens_details.reasoning_tokens").Exists() ||
-		usageNode.Get("output_tokens_details.reasoning_tokens").Exists()
+	return hasCountField(usageNode, "prompt_tokens") ||
+		hasCountField(usageNode, "input_tokens") ||
+		hasCountField(usageNode, "completion_tokens") ||
+		hasCountField(usageNode, "output_tokens") ||
+		hasCountField(usageNode, "prompt_tokens_details.cached_tokens") ||
+		hasCountField(usageNode, "input_tokens_details.cached_tokens") ||
+		hasCountField(usageNode, "prompt_tokens_details.cache_write_tokens") ||
+		hasCountField(usageNode, "prompt_tokens_details.cache_creation_tokens") ||
+		hasCountField(usageNode, "input_tokens_details.cache_write_tokens") ||
+		hasCountField(usageNode, "input_tokens_details.cache_creation_tokens") ||
+		hasCountField(usageNode, "completion_tokens_details.reasoning_tokens") ||
+		hasCountField(usageNode, "output_tokens_details.reasoning_tokens")
+}
+
+func hasCountField(node gjson.Result, path string) bool {
+	return node.Get(path).Type == gjson.Number
 }
 
 func parseOpenAIStyleUsageNode(usageNode gjson.Result) usage.Detail {
 	inputNode := usageNode.Get("prompt_tokens")
-	if !inputNode.Exists() {
+	if inputNode.Type != gjson.Number {
 		inputNode = usageNode.Get("input_tokens")
 	}
 	outputNode := usageNode.Get("completion_tokens")
-	if !outputNode.Exists() {
+	if outputNode.Type != gjson.Number {
 		outputNode = usageNode.Get("output_tokens")
 	}
 	detail := usage.Detail{
+		UsagePresent: true,
 		InputTokens:  inputNode.Int(),
 		OutputTokens: outputNode.Int(),
 		TotalTokens:  usageNode.Get("total_tokens").Int(),
 	}
 	cached := usageNode.Get("prompt_tokens_details.cached_tokens")
-	if !cached.Exists() {
+	if cached.Type != gjson.Number {
 		cached = usageNode.Get("input_tokens_details.cached_tokens")
 	}
-	if cached.Exists() {
+	if cached.Type == gjson.Number {
 		detail.CachedTokens = cached.Int()
 		detail.CacheReadTokens = cached.Int()
 	}
@@ -1048,18 +1077,18 @@ func parseOpenAIStyleUsageNode(usageNode gjson.Result) usage.Detail {
 		"prompt_tokens_details.cache_creation_tokens",
 		"prompt_tokens_details.cache_write_tokens",
 	)
-	if cacheCreation.Exists() {
+	if cacheCreation.Type == gjson.Number {
 		detail.CacheCreationTokens = cacheCreation.Int()
 	}
 	reasoning := usageNode.Get("completion_tokens_details.reasoning_tokens")
-	if !reasoning.Exists() {
+	if reasoning.Type != gjson.Number {
 		reasoning = usageNode.Get("output_tokens_details.reasoning_tokens")
 	}
-	if reasoning.Exists() {
+	if reasoning.Type == gjson.Number {
 		detail.ReasoningTokens = reasoning.Int()
 	}
 	if hasOpenAIStyleUsageBucketFields(usageNode) {
-		if inputNode.Exists() && outputNode.Exists() {
+		if inputNode.Type == gjson.Number && outputNode.Type == gjson.Number {
 			detail.TokenBreakdown = usage.NewSubsetTokenBreakdown(
 				detail.InputTokens,
 				detail.CacheReadTokens,
@@ -1071,12 +1100,12 @@ func parseOpenAIStyleUsageNode(usageNode gjson.Result) usage.Detail {
 		} else {
 			cacheReadTokens := detail.CacheReadTokens
 			cacheCreationTokens := detail.CacheCreationTokens
-			if !inputNode.Exists() {
+			if inputNode.Type != gjson.Number {
 				cacheReadTokens = 0
 				cacheCreationTokens = 0
 			}
 			reasoningTokens := detail.ReasoningTokens
-			if !outputNode.Exists() {
+			if outputNode.Type != gjson.Number {
 				reasoningTokens = 0
 			}
 			detail.TokenBreakdown = usage.NewPartialSubsetTokenBreakdown(
@@ -1117,10 +1146,12 @@ func ParseOpenAIStreamUsage(line []byte) (usage.Detail, bool) {
 
 func ParseClaudeUsage(data []byte) usage.Detail {
 	usageNode := gjson.ParseBytes(data).Get("usage")
-	if !usageNode.Exists() {
-		return usage.Detail{}
+	if !hasClaudeUsageTokenFields(usageNode) {
+		return usage.Detail{ResponseServiceTier: extractResponseServiceTier(data)}
 	}
-	return parseClaudeUsageNode(usageNode)
+	detail := parseClaudeUsageNode(usageNode)
+	detail.ResponseServiceTier = extractResponseServiceTier(data)
+	return detail
 }
 
 func ParseClaudeStreamUsage(line []byte) (usage.Detail, bool) {
@@ -1132,10 +1163,19 @@ func ParseClaudeStreamUsage(line []byte) (usage.Detail, bool) {
 	if !usageNode.Exists() {
 		usageNode = gjson.GetBytes(payload, "message.usage")
 	}
-	if !usageNode.Exists() {
+	if !hasClaudeUsageTokenFields(usageNode) {
 		return usage.Detail{}, false
 	}
-	return parseClaudeUsageNode(usageNode), true
+	detail := parseClaudeUsageNode(usageNode)
+	detail.ResponseServiceTier = extractResponseServiceTier(payload)
+	return detail, true
+}
+
+func hasClaudeUsageTokenFields(node gjson.Result) bool {
+	return node.IsObject() && (hasCountField(node, "input_tokens") || hasCountField(node, "output_tokens") ||
+		hasCountField(node, "cache_read_input_tokens") || hasCountField(node, "cache_creation_input_tokens") ||
+		hasCountField(node, "output_tokens_details.thinking_tokens") || hasCountField(node, "output_tokens_details.reasoning_tokens") ||
+		hasCountField(node, "thinking_tokens"))
 }
 
 func parseClaudeUsageNode(usageNode gjson.Result) usage.Detail {
@@ -1164,6 +1204,7 @@ func parseClaudeUsageNode(usageNode gjson.Result) usage.Detail {
 		nonReasoningOutput = 0
 	}
 	detail := usage.Detail{
+		UsagePresent:        true,
 		InputTokens:         usageNode.Get("input_tokens").Int(),
 		OutputTokens:        rawOutputTokens,
 		ReasoningTokens:     reasoningTokens,
@@ -1193,6 +1234,7 @@ func parseGeminiFamilyUsageDetail(node gjson.Result) usage.Detail {
 	toolUseTokens := firstExistingUsageNode(node, "toolUsePromptTokenCount", "tool_use_prompt_token_count").Int()
 	inputTokens, okInput := safeUsageTokenSum(node.Get("promptTokenCount").Int(), toolUseTokens)
 	detail := usage.Detail{
+		UsagePresent:    hasGeminiUsageTokenFields(node),
 		InputTokens:     inputTokens,
 		OutputTokens:    node.Get("candidatesTokenCount").Int(),
 		ReasoningTokens: node.Get("thoughtsTokenCount").Int(),
@@ -1232,6 +1274,7 @@ func parseInteractionsUsageDetail(node gjson.Result) usage.Detail {
 		toolUseTokens,
 	)
 	detail := usage.Detail{
+		UsagePresent:        hasInteractionsUsageTokenFields(node),
 		InputTokens:         inputTokens,
 		OutputTokens:        firstExistingUsageNode(node, "output_tokens", "completion_tokens", "total_output_tokens").Int(),
 		ReasoningTokens:     firstExistingUsageNode(node, "reasoning_tokens", "thoughtsTokenCount", "total_thought_tokens").Int(),
@@ -1268,16 +1311,35 @@ func parseInteractionsUsageDetail(node gjson.Result) usage.Detail {
 }
 
 func hasUsageDetail(detail usage.Detail) bool {
-	return hasNonZeroTokenUsage(detail)
+	return detail.UsagePresent || hasNonZeroTokenUsage(detail)
+}
+
+func hasGeminiUsageTokenFields(node gjson.Result) bool {
+	return node.IsObject() && (hasCountField(node, "promptTokenCount") || hasCountField(node, "candidatesTokenCount") ||
+		hasCountField(node, "thoughtsTokenCount") || hasCountField(node, "cachedContentTokenCount") ||
+		hasCountField(node, "totalTokenCount") || hasCountField(node, "toolUsePromptTokenCount") ||
+		hasCountField(node, "tool_use_prompt_token_count"))
+}
+
+func hasInteractionsUsageTokenFields(node gjson.Result) bool {
+	if !node.IsObject() {
+		return false
+	}
+	for _, key := range []string{"input_tokens", "prompt_tokens", "total_input_tokens", "output_tokens", "completion_tokens", "total_output_tokens", "reasoning_tokens", "thoughtsTokenCount", "total_thought_tokens", "total_tokens", "totalTokenCount", "cached_tokens", "cachedContentTokenCount", "total_cached_tokens", "cache_read_tokens", "cacheReadTokens", "cache_creation_tokens", "cacheCreationTokens", "cache_write_tokens", "cacheWriteTokens", "tool_use_tokens", "total_tool_use_tokens", "toolUseTokens", "totalToolUseTokens"} {
+		if hasCountField(node, key) {
+			return true
+		}
+	}
+	return false
 }
 
 func ParseInteractionsUsage(data []byte) usage.Detail {
 	root := gjson.ParseBytes(data)
 	node := firstExistingUsageNode(root, "usage", "total_usage", "metadata.total_usage", "metadata.usage", "usageMetadata", "usage_metadata", "interaction.usage", "interaction.total_usage", "interaction.metadata.total_usage")
-	if !node.Exists() {
+	if !hasGeminiUsageTokenFields(node) && !hasInteractionsUsageTokenFields(node) {
 		return usage.Detail{}
 	}
-	if node.Get("promptTokenCount").Exists() || node.Get("candidatesTokenCount").Exists() {
+	if hasCountField(node, "promptTokenCount") || hasCountField(node, "candidatesTokenCount") {
 		detail := parseGeminiFamilyUsageDetail(node)
 		detail.ResponseServiceTier = extractResponseServiceTier(data)
 		return detail
@@ -1295,7 +1357,7 @@ func extractResponseServiceTier(payload []byte) string {
 }
 
 func extractResponseServiceTierFromValidJSON(payload []byte) string {
-	for _, path := range []string{"response.service_tier", "service_tier", "interaction.service_tier"} {
+	for _, path := range []string{"response.service_tier", "response.usage.service_tier", "message.usage.service_tier", "usage.service_tier", "service_tier", "interaction.service_tier"} {
 		if tier := strings.TrimSpace(gjson.GetBytes(payload, path).String()); tier != "" {
 			return tier
 		}
@@ -1324,7 +1386,7 @@ func ParseGeminiUsage(data []byte) usage.Detail {
 	if !node.Exists() {
 		node = usageNode.Get("usage_metadata")
 	}
-	if !node.Exists() {
+	if !hasGeminiUsageTokenFields(node) {
 		return usage.Detail{}
 	}
 	return parseGeminiFamilyUsageDetail(node)
@@ -1339,14 +1401,23 @@ func ParseGeminiStreamUsage(line []byte) (usage.Detail, bool) {
 	if !node.Exists() {
 		node = gjson.GetBytes(payload, "usage_metadata")
 	}
-	if !node.Exists() {
+	if !hasGeminiUsageTokenFields(node) {
 		return usage.Detail{}, false
 	}
 	detail := parseGeminiFamilyUsageDetail(node)
-	if !hasNonZeroTokenUsage(detail) {
+	if !detail.UsagePresent || (!hasNonZeroTokenUsage(detail) && !hasGeminiTerminalUsage(payload)) {
 		return usage.Detail{}, false
 	}
 	return detail, true
+}
+
+func hasGeminiTerminalUsage(payload []byte) bool {
+	for _, path := range []string{"candidates.0.finishReason", "response.candidates.0.finishReason"} {
+		if gjson.GetBytes(payload, path).String() != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func firstExistingUsageNode(root gjson.Result, paths ...string) gjson.Result {
@@ -1391,7 +1462,7 @@ func ParseAntigravityUsage(data []byte) usage.Detail {
 	if !node.Exists() {
 		node = usageNode.Get("usage_metadata")
 	}
-	if !node.Exists() {
+	if !hasGeminiUsageTokenFields(node) {
 		return usage.Detail{}
 	}
 	return parseGeminiFamilyUsageDetail(node)
@@ -1409,10 +1480,14 @@ func ParseAntigravityStreamUsage(line []byte) (usage.Detail, bool) {
 	if !node.Exists() {
 		node = gjson.GetBytes(payload, "usage_metadata")
 	}
-	if !node.Exists() {
+	if !hasGeminiUsageTokenFields(node) {
 		return usage.Detail{}, false
 	}
-	return parseGeminiFamilyUsageDetail(node), true
+	detail := parseGeminiFamilyUsageDetail(node)
+	if !hasNonZeroTokenUsage(detail) && !hasGeminiTerminalUsage(payload) {
+		return usage.Detail{}, false
+	}
+	return detail, true
 }
 
 var stopChunkWithoutUsage sync.Map
