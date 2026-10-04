@@ -704,6 +704,9 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth, quotaSupported .
 	if projectID := authProjectID(auth); projectID != "" {
 		entry["project_id"] = projectID
 	}
+	if plan := authSubscriptionPlan(auth); plan != "" {
+		entry["plan"] = plan
+	}
 	if accountType, account := auth.AccountInfo(); accountType != "" || account != "" {
 		if accountType != "" {
 			entry["account_type"] = accountType
