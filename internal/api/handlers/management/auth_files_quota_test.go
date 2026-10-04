@@ -66,3 +66,22 @@ func TestQuotaObservationPayloadExcludesCooldownState(t *testing.T) {
 		t.Fatalf("cooldown backoff leaked: %#v", payload)
 	}
 }
+
+func TestQuotaObservationPayloadReportsCarriedSignalTimes(t *testing.T) {
+	fableSeenAt := time.Unix(5, 0)
+	payload := quotaObservationPayload(coreauth.QuotaState{
+		ObservedAt: time.Unix(10, 0),
+		Signals: map[string]string{
+			"Anthropic-Ratelimit-Unified-7d-Utilization":    "0.4",
+			"Anthropic-Ratelimit-Unified-7d_oi-Utilization": "0.9",
+		},
+		SignalObservedAt: map[string]time.Time{"Anthropic-Ratelimit-Unified-7d_oi-Utilization": fableSeenAt},
+	})
+	carried, ok := payload["signal_observed_at"].(map[string]time.Time)
+	if !ok || len(carried) != 1 || !carried["Anthropic-Ratelimit-Unified-7d_oi-Utilization"].Equal(fableSeenAt) {
+		t.Fatalf("signal_observed_at = %#v", payload["signal_observed_at"])
+	}
+	if _, ok := quotaObservationPayload(coreauth.QuotaState{ObservedAt: time.Unix(10, 0)})["signal_observed_at"]; ok {
+		t.Fatal("signal_observed_at reported without carried signals")
+	}
+}

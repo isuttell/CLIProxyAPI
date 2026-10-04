@@ -184,12 +184,24 @@ type QuotaState struct {
 	// ObservedAt is the time the current Signals snapshot was observed.
 	ObservedAt time.Time `json:"observed_at,omitempty"`
 	// Signals stores bounded, provider-specific quota watermark values observed
-	// from upstream response headers or websocket quota events. It is a snapshot
-	// of one upstream response, not an accumulation across responses, so an
-	// expired watermark cannot linger after the response that produced it.
+	// from upstream response headers or websocket quota events. Each response
+	// refreshes the signals it reports; signals it omits keep their last seen
+	// value, and SignalObservedAt records when those were actually observed.
 	// Cooldown transitions must use applyCooldownFields so they cannot replace
 	// this snapshot.
 	Signals map[string]string `json:"signals,omitempty"`
+	// SignalObservedAt holds the original observation time of each signal that
+	// was carried forward from an earlier response. Signals absent from this map
+	// were observed at ObservedAt.
+	SignalObservedAt map[string]time.Time `json:"signal_observed_at,omitempty"`
+}
+
+// SignalObservedAtFor reports when the named signal was last observed upstream.
+func (q QuotaState) SignalObservedAtFor(name string) time.Time {
+	if observedAt, ok := q.SignalObservedAt[name]; ok {
+		return observedAt
+	}
+	return q.ObservedAt
 }
 
 // Clone returns an independent copy of the quota state.
@@ -199,6 +211,12 @@ func (q QuotaState) Clone() QuotaState {
 		copyQuota.Signals = make(map[string]string, len(q.Signals))
 		for key, value := range q.Signals {
 			copyQuota.Signals[key] = value
+		}
+	}
+	if len(q.SignalObservedAt) > 0 {
+		copyQuota.SignalObservedAt = make(map[string]time.Time, len(q.SignalObservedAt))
+		for key, value := range q.SignalObservedAt {
+			copyQuota.SignalObservedAt[key] = value
 		}
 	}
 	return copyQuota

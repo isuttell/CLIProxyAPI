@@ -17,18 +17,20 @@ func authQuotaWindows(auth *Auth, model string) ([]quotaWindow, []string) {
 	if auth == nil || auth.AuthKind() == AuthKindAPIKey || len(auth.Quota.Signals) == 0 {
 		return nil, nil
 	}
-	signals, observedAt := auth.Quota.Signals, auth.Quota.ObservedAt
 	switch strings.ToLower(strings.TrimSpace(auth.Provider)) {
 	case "claude":
-		return claudeQuotaWindows(signals, observedAt)
+		return claudeQuotaWindows(auth.Quota)
 	case "codex":
-		return codexQuotaWindows(signals, observedAt, model)
+		return codexQuotaWindows(auth.Quota, model)
 	default:
 		return nil, nil
 	}
 }
 
-func claudeQuotaWindows(signals map[string]string, observedAt time.Time) ([]quotaWindow, []string) {
+// Each window is dated by its own observation, so a window carried forward from
+// an earlier response cannot pass as fresh.
+func claudeQuotaWindows(quota QuotaState) ([]quotaWindow, []string) {
+	signals := quota.Signals
 	var windows []quotaWindow
 	var problems []string
 	for _, claim := range []struct {
@@ -48,6 +50,7 @@ func claudeQuotaWindows(signals map[string]string, observedAt time.Time) ([]quot
 			problems = append(problems, "claude "+claim.name+" incomplete window")
 			continue
 		}
+		observedAt := quota.SignalObservedAtFor(prefix + "Utilization")
 		utilization, errUtilization := strconv.ParseFloat(rawUtilization, 64)
 		resetUnix, errReset := strconv.ParseInt(rawReset, 10, 64)
 		if errUtilization != nil || !finiteFraction(utilization) || errReset != nil || resetUnix <= 0 || !validAbsoluteReset(time.Unix(resetUnix, 0), observedAt) {
@@ -62,11 +65,12 @@ func claudeQuotaWindows(signals map[string]string, observedAt time.Time) ([]quot
 	return windows, problems
 }
 
-func codexQuotaWindows(signals map[string]string, observedAt time.Time, model string) ([]quotaWindow, []string) {
+func codexQuotaWindows(quota QuotaState, model string) ([]quotaWindow, []string) {
+	signals := quota.Signals
 	var windows []quotaWindow
 	var problems []string
 	for _, prefix := range []string{"X-Codex-Primary-", "X-Codex-Secondary-"} {
-		if window, present, valid := parseCodexWindow(signals, prefix, observedAt); present {
+		if window, present, valid := parseCodexWindow(quota, prefix); present {
 			if valid {
 				windows = append(windows, window)
 			} else {
@@ -87,7 +91,7 @@ func codexQuotaWindows(signals map[string]string, observedAt time.Time, model st
 		prefix := strings.TrimSuffix(name, "Limit-Name")
 		hasWindow := false
 		for _, windowName := range []string{"Primary-", "Secondary-"} {
-			if window, present, valid := parseCodexWindow(signals, prefix+windowName, observedAt); present {
+			if window, present, valid := parseCodexWindow(quota, prefix+windowName); present {
 				if valid {
 					hasWindow = true
 					windows = append(windows, window)
@@ -103,7 +107,8 @@ func codexQuotaWindows(signals map[string]string, observedAt time.Time, model st
 	return windows, problems
 }
 
-func parseCodexWindow(signals map[string]string, prefix string, observedAt time.Time) (quotaWindow, bool, bool) {
+func parseCodexWindow(quota QuotaState, prefix string) (quotaWindow, bool, bool) {
+	signals, observedAt := quota.Signals, quota.SignalObservedAtFor(prefix+"Used-Percent")
 	rawUsed, okUsed := signals[prefix+"Used-Percent"]
 	rawMinutes, okMinutes := signals[prefix+"Window-Minutes"]
 	if !okUsed && !okMinutes {

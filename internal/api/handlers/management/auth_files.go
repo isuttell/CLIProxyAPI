@@ -828,6 +828,14 @@ func quotaObservationPayload(quota coreauth.QuotaState) gin.H {
 		signals[key] = value
 	}
 	observed["signals"] = signals
+	if len(quota.SignalObservedAt) > 0 {
+		// Signals carried forward from an earlier response, keyed by signal name.
+		signalObservedAt := make(map[string]time.Time, len(quota.SignalObservedAt))
+		for key, value := range quota.SignalObservedAt {
+			signalObservedAt[key] = value
+		}
+		observed["signal_observed_at"] = signalObservedAt
+	}
 	return observed
 }
 

@@ -283,7 +283,7 @@ func TestMergeModelStateKeepsNewestObservationSnapshot(t *testing.T) {
 
 // A watermark such as Retry-After only appears on the response that produced it.
 // Later responses must not keep advertising it.
-func TestObserveResponseHeadersReplacesStaleWatermarks(t *testing.T) {
+func TestObserveResponseHeadersCarriesOmittedSignalsWithObservationTime(t *testing.T) {
 	var quota QuotaState
 	if !quota.ObserveResponseHeadersForProvider("codex", http.Header{
 		"Retry-After":                  []string{"120"},
@@ -291,23 +291,37 @@ func TestObserveResponseHeadersReplacesStaleWatermarks(t *testing.T) {
 	}, time.Unix(100, 0)) {
 		t.Fatal("initial observation reported no change")
 	}
-	if quota.Signals["Retry-After"] != "120" {
-		t.Fatalf("initial snapshot = %#v", quota.Signals)
-	}
 
 	if !quota.ObserveResponseHeadersForProvider("codex", http.Header{
 		"X-Codex-Primary-Used-Percent": []string{"5"},
 	}, time.Unix(200, 0)) {
 		t.Fatal("second observation reported no change")
 	}
-	if _, ok := quota.Signals["Retry-After"]; ok {
-		t.Fatalf("expired Retry-After survived a later response: %#v", quota.Signals)
+	if quota.Signals["Retry-After"] != "120" || !quota.SignalObservedAtFor("Retry-After").Equal(time.Unix(100, 0)) {
+		t.Fatalf("omitted signal was not carried with its observation time: %#v %#v", quota.Signals, quota.SignalObservedAt)
 	}
-	if quota.Signals["X-Codex-Primary-Used-Percent"] != "5" {
-		t.Fatalf("snapshot not refreshed: %#v", quota.Signals)
+	if quota.Signals["X-Codex-Primary-Used-Percent"] != "5" || !quota.SignalObservedAtFor("X-Codex-Primary-Used-Percent").Equal(time.Unix(200, 0)) {
+		t.Fatalf("reported signal was not refreshed: %#v %#v", quota.Signals, quota.SignalObservedAt)
 	}
 	if !quota.ObservedAt.Equal(time.Unix(200, 0)) {
 		t.Fatalf("ObservedAt = %v, want the latest observation time", quota.ObservedAt)
+	}
+}
+
+// Carried signals fill only the room left under the cap, so a response that
+// reports a full snapshot is never displaced by older values.
+func TestObserveResponseHeadersPrefersFreshSignalsAtCap(t *testing.T) {
+	quota := QuotaState{
+		ObservedAt: time.Unix(100, 0),
+		Signals:    map[string]string{"X-Codex-Plan-Type": "plus"},
+	}
+	headers := make(http.Header, maxQuotaSignalHeaders)
+	for i := 0; i < maxQuotaSignalHeaders; i++ {
+		headers.Set(fmt.Sprintf("X-Codex-L%03d-Primary-Used-Percent", i), strconv.Itoa(i))
+	}
+	quota.ObserveResponseHeadersForProvider("codex", headers, time.Unix(200, 0))
+	if len(quota.Signals) != maxQuotaSignalHeaders || len(quota.SignalObservedAt) != 0 {
+		t.Fatalf("carried signal displaced a fresh one: %d signals, carried %#v", len(quota.Signals), quota.SignalObservedAt)
 	}
 }
 
@@ -681,5 +695,75 @@ func TestObserveResponseHeadersKeepsPrimaryWhenTruncatingAdditional(t *testing.T
 	}
 	if len(quota.Signals) != maxQuotaSignalHeaders {
 		t.Fatalf("snapshot size = %d, want %d", len(quota.Signals), maxQuotaSignalHeaders)
+	}
+}
+
+func claudeFableObservationHeaders(fableUtilization string, fableReset int64) http.Header {
+	headers := http.Header{
+		"Anthropic-Ratelimit-Unified-Status":         []string{"allowed"},
+		"Anthropic-Ratelimit-Unified-5h-Utilization": []string{"0.1"},
+		"Anthropic-Ratelimit-Unified-5h-Reset":       []string{"1787296800"},
+		"Anthropic-Ratelimit-Unified-7d-Utilization": []string{"0.5"},
+		"Anthropic-Ratelimit-Unified-7d-Reset":       []string{"1787695200"},
+	}
+	if fableUtilization != "" {
+		headers.Set("Anthropic-Ratelimit-Unified-7d_oi-Status", "allowed")
+		headers.Set("Anthropic-Ratelimit-Unified-7d_oi-Utilization", fableUtilization)
+		headers.Set("Anthropic-Ratelimit-Unified-7d_oi-Reset", strconv.FormatInt(fableReset, 10))
+	}
+	return headers
+}
+
+// Claude reports the Fable weekly window only on requests that touch it, so a
+// later non-Fable response must not erase its last seen values.
+func TestObserveResponseHeadersCarriesUnreportedClaudeWindow(t *testing.T) {
+	fableSeenAt := time.Unix(1787279282, 0)
+	fableReset := fableSeenAt.Add(3 * 24 * time.Hour).Unix()
+	var quota QuotaState
+	quota.ObserveResponseHeadersForProvider("claude", claudeFableObservationHeaders("0.8", fableReset), fableSeenAt)
+	if len(quota.SignalObservedAt) != 0 {
+		t.Fatalf("fresh observation reported carried signals: %#v", quota.SignalObservedAt)
+	}
+
+	for _, observedAt := range []time.Time{fableSeenAt.Add(time.Hour), fableSeenAt.Add(2 * time.Hour)} {
+		headers := claudeFableObservationHeaders("", 0)
+		headers.Set("Anthropic-Ratelimit-Unified-Status", "allowed_warning")
+		quota.ObserveResponseHeadersForProvider("claude", headers, observedAt)
+		if quota.Signals["Anthropic-Ratelimit-Unified-7d_oi-Utilization"] != "0.8" ||
+			quota.Signals["Anthropic-Ratelimit-Unified-7d_oi-Status"] != "allowed" {
+			t.Fatalf("Fable window was not carried forward: %#v", quota.Signals)
+		}
+		if got := quota.SignalObservedAtFor("Anthropic-Ratelimit-Unified-7d_oi-Utilization"); !got.Equal(fableSeenAt) {
+			t.Fatalf("carried Fable observation time = %v, want %v", got, fableSeenAt)
+		}
+		if got := quota.SignalObservedAtFor("Anthropic-Ratelimit-Unified-7d-Utilization"); !got.Equal(observedAt) {
+			t.Fatalf("reported 7d observation time = %v, want %v", got, observedAt)
+		}
+		if quota.Signals["Anthropic-Ratelimit-Unified-Status"] != "allowed_warning" {
+			t.Fatalf("response-level status was not replaced: %#v", quota.Signals)
+		}
+	}
+
+	refreshedAt := fableSeenAt.Add(3 * time.Hour)
+	quota.ObserveResponseHeadersForProvider("claude", claudeFableObservationHeaders("0.85", fableReset), refreshedAt)
+	if quota.Signals["Anthropic-Ratelimit-Unified-7d_oi-Utilization"] != "0.85" || len(quota.SignalObservedAt) != 0 {
+		t.Fatalf("reported Fable window did not replace the carried one: %#v %#v", quota.Signals, quota.SignalObservedAt)
+	}
+}
+
+func TestMergeQuotaObservationKeepsCarriedSignalTimes(t *testing.T) {
+	carriedAt := time.Unix(50, 0)
+	source := QuotaState{
+		ObservedAt:       time.Unix(100, 0),
+		Signals:          map[string]string{"Anthropic-Ratelimit-Unified-7d_oi-Utilization": "0.8"},
+		SignalObservedAt: map[string]time.Time{"Anthropic-Ratelimit-Unified-7d_oi-Utilization": carriedAt},
+	}
+	merged := mergeQuotaObservation(QuotaState{}, source)
+	if got := merged.SignalObservedAtFor("Anthropic-Ratelimit-Unified-7d_oi-Utilization"); !got.Equal(carriedAt) {
+		t.Fatalf("merged carried observation time = %v, want %v", got, carriedAt)
+	}
+	source.SignalObservedAt["Anthropic-Ratelimit-Unified-7d_oi-Utilization"] = time.Unix(1, 0)
+	if !merged.SignalObservedAt["Anthropic-Ratelimit-Unified-7d_oi-Utilization"].Equal(carriedAt) {
+		t.Fatal("merged observation shares its SignalObservedAt map with the source")
 	}
 }

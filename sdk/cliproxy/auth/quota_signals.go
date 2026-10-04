@@ -23,17 +23,18 @@ func ProviderSupportsQuotaObservation(provider string) bool {
 	}
 }
 
-// ObserveResponseHeadersForProvider replaces the passive quota snapshot with the
-// signals carried by the current upstream response.
+// ObserveResponseHeadersForProvider merges the signals carried by the current
+// upstream response into the passive quota snapshot.
 //
-// The snapshot is replaced rather than merged: a watermark such as Retry-After
-// or a "limit reached" flag only appears on the response that produced it, so
-// accumulating signals across responses would leave an expired value visible
-// indefinitely. Responses that carry no quota signal at all (transport
-// failures, 5xx, unrelated endpoints) leave the previous snapshot untouched.
+// Upstreams do not report every limit on every response (Claude sends its
+// Fable weekly window only on requests that touch it), so signals the current
+// response omits keep their last seen value. SignalObservedAt records when each
+// of those carried signals was actually observed, letting consumers judge their
+// age. Responses that carry no quota signal at all (transport failures, 5xx,
+// unrelated endpoints) leave the previous snapshot untouched.
 //
-// This function only ever touches ObservedAt and Signals. Cooldown and
-// scheduling fields are never read or written here.
+// This function only ever touches ObservedAt, Signals, and SignalObservedAt.
+// Cooldown and scheduling fields are never read or written here.
 func (q *QuotaState) ObserveResponseHeadersForProvider(provider string, headers http.Header, observedAt time.Time) bool {
 	if q == nil {
 		return false
@@ -48,9 +49,36 @@ func (q *QuotaState) ObserveResponseHeadersForProvider(provider string, headers 
 	if observedAt.IsZero() {
 		observedAt = time.Now()
 	}
+	carriedAt := carryForwardQuotaSignals(*q, next)
 	q.Signals = next
 	q.ObservedAt = observedAt
+	q.SignalObservedAt = carriedAt
 	return true
+}
+
+// carryForwardQuotaSignals fills next with every previous signal it omits,
+// within the snapshot size cap, and returns the original observation time of
+// each carried signal. Fresh signals always take precedence over carried ones.
+func carryForwardQuotaSignals(previous QuotaState, next map[string]string) map[string]time.Time {
+	names := make([]string, 0, len(previous.Signals))
+	for name := range previous.Signals {
+		if _, reported := next[name]; !reported {
+			names = append(names, name)
+		}
+	}
+	sortQuotaSignalNames(names)
+	var carriedAt map[string]time.Time
+	for _, name := range names {
+		if len(next) >= maxQuotaSignalHeaders {
+			break
+		}
+		if carriedAt == nil {
+			carriedAt = make(map[string]time.Time)
+		}
+		next[name] = previous.Signals[name]
+		carriedAt[name] = previous.SignalObservedAtFor(name)
+	}
+	return carriedAt
 }
 
 // ClearObservationSignals removes only passive observation data. It leaves
@@ -61,6 +89,7 @@ func (q *QuotaState) ClearObservationSignals() bool {
 	}
 	q.Signals = nil
 	q.ObservedAt = time.Time{}
+	q.SignalObservedAt = nil
 	return true
 }
 
@@ -112,15 +141,7 @@ func collectQuotaSignals(provider string, headers http.Header) map[string]string
 	if len(names) == 0 {
 		return nil
 	}
-	// Rank then sort so truncation is deterministic and keeps credential-level
-	// watermarks (plan, credits, primary) ahead of additional-limit namespaces.
-	sort.Slice(names, func(i, j int) bool {
-		ri, rj := quotaSignalRetentionRank(names[i]), quotaSignalRetentionRank(names[j])
-		if ri != rj {
-			return ri < rj
-		}
-		return names[i] < names[j]
-	})
+	sortQuotaSignalNames(names)
 	if len(names) > maxQuotaSignalHeaders {
 		names = names[:maxQuotaSignalHeaders]
 	}
@@ -144,6 +165,19 @@ func validQuotaSignalValue(value string) bool {
 		}
 	}
 	return true
+}
+
+// sortQuotaSignalNames ranks then sorts so truncation is deterministic and keeps
+// credential-level watermarks (plan, credits, primary) ahead of
+// additional-limit namespaces.
+func sortQuotaSignalNames(names []string) {
+	sort.Slice(names, func(i, j int) bool {
+		ri, rj := quotaSignalRetentionRank(names[i]), quotaSignalRetentionRank(names[j])
+		if ri != rj {
+			return ri < rj
+		}
+		return names[i] < names[j]
+	})
 }
 
 func quotaSignalRetentionRank(name string) int {
@@ -214,15 +248,17 @@ func isQuotaSignalHeaderForProvider(provider, name string) bool {
 	return false
 }
 
-// mergeQuotaObservation keeps the newest observation snapshot instead of
-// unioning signals captured at different times, so merging an older snapshot
-// can never resurrect a stale watermark.
+// mergeQuotaObservation keeps the newest observation snapshot, which already
+// carries forward every older signal it omits, so merging an older snapshot
+// can never overwrite newer values.
 func mergeQuotaObservation(target, source QuotaState) QuotaState {
 	if source.ObservedAt.IsZero() || source.ObservedAt.Before(target.ObservedAt) {
 		return target
 	}
-	target.ObservedAt = source.ObservedAt
-	target.Signals = source.Clone().Signals
+	cloned := source.Clone()
+	target.ObservedAt = cloned.ObservedAt
+	target.Signals = cloned.Signals
+	target.SignalObservedAt = cloned.SignalObservedAt
 	return target
 }
 
