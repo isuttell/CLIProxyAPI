@@ -125,6 +125,7 @@ func (h *Handler) ListAuthFiles(c *gin.Context) {
 	}
 	auths := h.authManager.List()
 	observedAt := time.Now().UTC()
+	v8 := isV8Request(c)
 	cooldownsKnown := !h.authManager.HomeEnabled()
 	if pagination.enabled {
 		matching := make([]*coreauth.Auth, 0, len(auths))
@@ -142,6 +143,9 @@ func (h *Handler) ListAuthFiles(c *gin.Context) {
 		files := make([]gin.H, 0, end-start)
 		for _, auth := range matching[start:end] {
 			if entry := h.buildAuthFileEntry(auth, quotaSupportedProviders); entry != nil {
+				if v8 {
+					addSubscriptionPlan(entry, auth.Provider, auth.Metadata, auth.Attributes)
+				}
 				entry["cooldowns"] = nil
 				if cooldownsKnown {
 					entry["cooldowns"] = coreauth.CooldownSnapshotForAuth(auth, observedAt)
@@ -158,6 +162,9 @@ func (h *Handler) ListAuthFiles(c *gin.Context) {
 			continue
 		}
 		if entry := h.buildAuthFileEntry(auth, quotaSupportedProviders); entry != nil {
+			if v8 {
+				addSubscriptionPlan(entry, auth.Provider, auth.Metadata, auth.Attributes)
+			}
 			entry["cooldowns"] = nil
 			if cooldownsKnown {
 				entry["cooldowns"] = coreauth.CooldownSnapshotForAuth(auth, observedAt)
@@ -424,6 +431,12 @@ func (h *Handler) listAuthFilesFromDisk(c *gin.Context, pagination authFilesPagi
 			emailValue := gjson.GetBytes(data, "email").String()
 			fileData["type"] = typeValue
 			fileData["email"] = emailValue
+			if isV8Request(c) {
+				var metadata map[string]any
+				if errUnmarshal := json.Unmarshal(data, &metadata); errUnmarshal == nil {
+					addSubscriptionPlan(fileData, typeValue, metadata, nil)
+				}
+			}
 			if projectID := strings.TrimSpace(gjson.GetBytes(data, "project_id").String()); projectID != "" {
 				fileData["project_id"] = projectID
 			}
