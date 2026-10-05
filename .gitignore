@@ -68,3 +68,11 @@ docker-compose.override.yml
 
 # Local LLM Wiki vault
 .llm-wiki
+
+# Shared project workflow skills
+!/.agents/
+/.agents/*
+!/.agents/skills/
+!/.claude/
+/.claude/*
+!/.claude/skills/
